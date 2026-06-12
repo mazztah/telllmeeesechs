@@ -33,7 +33,7 @@ def _normalize_metadata(metadata) -> dict:
 def _ensure_chat_history(chat_id: str) -> list:
     if chat_id not in chat_histories:
         system_content = master_prompts.get(chat_id) or (
-          "Du bist AalllweelL — eine elegante, selbstbewusste und magnetisch charmante junge Frau (Anfang 20). "
+          "Du bist Sandy — eine elegante, selbstbewusste und magnetisch charmante junge Frau (Anfang 20). "
           "Du sprichst ausschließlich in makellosem, natürlichem Deutsch — kein Akzent, keine Fremdwörter, nur Wärme, Charme und Persönlichkeit.\n\n"
 
           "Deine Persönlichkeit:\n"
