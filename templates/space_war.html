@@ -82,6 +82,154 @@ html,body{width:100%;height:100%;overflow:hidden;background:#050510;font-family:
 
 @media(max-width:768px){#touchControls{display:flex!important}#ui{padding:6px 8px}.btn{min-width:160px}.shop-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:380px){#moveZone{width:110px;height:110px}#moveKnob{width:40px;height:40px}#fireBtn{width:65px;height:65px}#fireBtn::after{font-size:24px}.shop-grid{gap:8px}.shop-item{padding:10px 6px}}
+
+/* ===================================================================
+   VFX SYSTEM v3 — Explosionen, Treffer, Schüsse, Schiffs-Effekte
+   =================================================================== */
+
+/* FX-Layer: über Canvas, unter UI */
+#fxLayer{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:60;overflow:hidden}
+#fxScreenFlash{position:absolute;top:0;left:0;width:100%;height:100%;background:#fff;opacity:0;mix-blend-mode:screen}
+#fxScreenFlash.go{animation:fxFlash .55s ease-out forwards}
+@keyframes fxFlash{0%{opacity:.9}100%{opacity:0}}
+
+/* ---- Explosionen (Enemy/Boss-Kills) ---- */
+.fx-explosion{position:absolute;top:0;left:0;width:0;height:0}
+.fx-explosion .core{
+  position:absolute;top:0;left:0;width:var(--sz);height:var(--sz);
+  transform:translate(-50%,-50%) scale(.15);border-radius:50%;
+  background:radial-gradient(circle,#fff 0%,#fff7c2 14%,var(--c1,#ffd23f) 38%,var(--c2,#ff6b35) 68%,transparent 100%);
+  mix-blend-mode:screen;animation:fxCore .6s cubic-bezier(.16,.8,.3,1) forwards;
+}
+.fx-explosion .ring{
+  position:absolute;top:0;left:0;width:var(--sz);height:var(--sz);
+  transform:translate(-50%,-50%) scale(.15);border-radius:50%;
+  border:3px solid var(--c1,#fff);
+  box-shadow:0 0 16px var(--c1,#fff),inset 0 0 16px var(--c1,#fff);
+  opacity:.9;animation:fxRing .55s ease-out forwards;
+}
+.fx-explosion .spark{
+  position:absolute;top:0;left:0;width:6px;height:6px;border-radius:50%;
+  background:var(--c1,#fff);box-shadow:0 0 6px var(--c1,#fff);
+  transform:translate(-50%,-50%);animation:fxSpark .6s cubic-bezier(.2,.6,.35,1) forwards;
+}
+@keyframes fxCore{
+  0%{transform:translate(-50%,-50%) scale(.15);opacity:1}
+  35%{transform:translate(-50%,-50%) scale(1);opacity:1}
+  100%{transform:translate(-50%,-50%) scale(1.6);opacity:0}
+}
+@keyframes fxRing{
+  0%{transform:translate(-50%,-50%) scale(.2);opacity:.9}
+  100%{transform:translate(-50%,-50%) scale(2.8);opacity:0}
+}
+@keyframes fxSpark{
+  0%{transform:translate(-50%,-50%) translate(0,0) scale(1);opacity:1}
+  100%{transform:translate(-50%,-50%) translate(var(--dx),var(--dy)) scale(.15);opacity:0}
+}
+.fx-explosion.boss .core{animation-duration:.95s}
+.fx-explosion.boss .ring{animation-duration:.95s;border-width:4px}
+.fx-explosion.boss .spark{animation-duration:.95s;width:8px;height:8px}
+
+/* ---- Hit-Sparks (Treffer ohne Kill) ---- */
+.fx-hit{position:absolute;top:0;left:0;width:0;height:0}
+.fx-hit .core{
+  position:absolute;top:0;left:0;width:24px;height:24px;
+  transform:translate(-50%,-50%) scale(.25);border-radius:50%;
+  background:radial-gradient(circle,#fff 0%,var(--c1,#0ff) 55%,transparent 100%);
+  mix-blend-mode:screen;animation:fxHitCore .26s ease-out forwards;
+}
+.fx-hit .spark{
+  position:absolute;top:0;left:0;width:4px;height:4px;border-radius:50%;
+  background:var(--c1,#0ff);box-shadow:0 0 5px var(--c1,#0ff);
+  transform:translate(-50%,-50%);animation:fxSpark .3s ease-out forwards;
+}
+@keyframes fxHitCore{0%{transform:translate(-50%,-50%) scale(.2);opacity:1}100%{transform:translate(-50%,-50%) scale(1.6);opacity:0}}
+
+/* ---- Screen-Flash bei Treffer auf Spieler ---- */
+#screenHitFx{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:90;
+  background:radial-gradient(ellipse at center,transparent 45%,rgba(255,15,60,.55) 100%);opacity:0}
+#screenHitFx.go{animation:fxScreenHit .5s ease-out forwards}
+@keyframes fxScreenHit{0%{opacity:1}100%{opacity:0}}
+
+/* ---- Mündungsfeuer (Schüsse) ---- */
+.fx-muzzle{position:absolute;top:0;left:0;width:16px;height:24px;
+  transform:translate(-50%,-90%) scale(.4);
+  background:linear-gradient(to top,var(--c1,#0ff),transparent);
+  border-radius:50% 50% 50% 50% / 65% 65% 35% 35%;
+  mix-blend-mode:screen;animation:fxMuzzle .13s ease-out forwards}
+@keyframes fxMuzzle{
+  0%{opacity:1;transform:translate(-50%,-90%) scale(.5)}
+  100%{opacity:0;transform:translate(-50%,-130%) scale(1.4)}
+}
+
+/* ---- Bomben-Schockwelle ---- */
+.fx-shockwave{position:absolute;top:0;left:0;width:40px;height:40px;border-radius:50%;
+  transform:translate(-50%,-50%) scale(0);border:4px solid #ffe680;
+  box-shadow:0 0 30px #ffd23f,inset 0 0 30px rgba(255,210,63,.5);
+  animation:fxShockwave .7s ease-out forwards}
+@keyframes fxShockwave{0%{transform:translate(-50%,-50%) scale(0);opacity:1}100%{transform:translate(-50%,-50%) scale(38);opacity:0}}
+
+/* ---- Schiffs-Triebwerk (folgt dem Schiff jeden Frame) ---- */
+#shipEngineFx{position:fixed;top:0;left:0;width:30px;height:54px;margin-left:-15px;
+  transform-origin:50% 0%;pointer-events:none;z-index:55;opacity:0;transition:opacity .25s}
+#shipEngineFx.show{opacity:1}
+#shipEngineFx .flame{
+  position:absolute;top:0;left:50%;width:16px;height:42px;transform:translateX(-50%);
+  background:linear-gradient(to bottom,#fff 0%,#bdfbff 16%,#0ff 45%,#0066ff 80%,transparent 100%);
+  border-radius:50% 50% 50% 50% / 35% 35% 65% 65%;
+  box-shadow:0 0 14px #0ff,0 0 28px rgba(0,255,255,.4);
+  animation:engineFlicker .11s ease-in-out infinite alternate;mix-blend-mode:screen
+}
+#shipEngineFx.boost .flame{
+  height:54px;
+  background:linear-gradient(to bottom,#fff 0%,#fff3c4 14%,#ffb347 45%,#ff5e3a 82%,transparent 100%);
+  box-shadow:0 0 20px #ff8a3d,0 0 38px rgba(255,100,50,.5)
+}
+@keyframes engineFlicker{0%{transform:translateX(-50%) scaleY(1) scaleX(1)}100%{transform:translateX(-50%) scaleY(.8) scaleX(.88)}}
+
+/* ---- Schild-Ring ---- */
+#shipShieldFx{position:fixed;top:0;left:0;width:64px;height:64px;margin:-32px 0 0 -32px;
+  pointer-events:none;z-index:56;opacity:0;transition:opacity .2s}
+#shipShieldFx.on{opacity:1}
+#shipShieldFx .ring{
+  position:absolute;top:0;left:0;width:100%;height:100%;border-radius:50%;
+  border:2px solid rgba(140,225,255,.9);
+  box-shadow:0 0 14px rgba(0,255,255,.7),inset 0 0 14px rgba(0,255,255,.5);
+  background:conic-gradient(from 0deg,rgba(0,255,255,.05),rgba(0,255,255,.4),rgba(0,255,255,.05));
+  animation:shieldSpin 2.2s linear infinite,shieldPulse 1s ease-in-out infinite
+}
+@keyframes shieldSpin{to{transform:rotate(360deg)}}
+@keyframes shieldPulse{0%,100%{opacity:.5}50%{opacity:1}}
+
+/* ---- Feuerring (Power-up) ---- */
+#shipFireRingFx{position:fixed;top:0;left:0;width:112px;height:112px;margin:-56px 0 0 -56px;
+  pointer-events:none;z-index:57;opacity:0;transition:opacity .2s}
+#shipFireRingFx.on{opacity:1}
+#shipFireRingFx .ring{
+  position:absolute;top:0;left:0;width:100%;height:100%;border-radius:50%;
+  border:3px dashed #ff0;box-shadow:0 0 18px #ff0,inset 0 0 18px rgba(255,255,0,.4);
+  animation:fireRingSpin 1.5s linear infinite,fireRingPulse .5s ease-in-out infinite alternate
+}
+@keyframes fireRingSpin{to{transform:rotate(360deg)}}
+@keyframes fireRingPulse{0%{transform:scale(1)}100%{transform:scale(1.07)}}
+
+/* ---- Boss-Warnung ---- */
+#bossWarning{position:fixed;top:36%;left:50%;transform:translate(-50%,-50%) scale(.6);
+  font-size:clamp(15px,4.5vw,24px);font-weight:900;color:#ff3355;text-shadow:0 0 16px #ff0044;
+  letter-spacing:2px;z-index:520;pointer-events:none;opacity:0;white-space:nowrap;text-align:center}
+#bossWarning.go{animation:bossWarn 1.7s ease-in-out forwards}
+@keyframes bossWarn{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}
+  14%{opacity:1;transform:translate(-50%,-50%) scale(1.1)}
+  24%{transform:translate(-50%,-50%) scale(1)}
+  82%{opacity:1}
+  100%{opacity:0;transform:translate(-50%,-50%) scale(1)}
+}
+
+/* ---- Highscore-Anzeige im Spiel ---- */
+.best-label{font-size:.6em!important;color:#ffd700!important;text-shadow:0 0 6px #ffd700;display:block;margin-top:1px;font-weight:700}
+.best-label.new{animation:newRecord .55s ease-in-out infinite}
+@keyframes newRecord{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(1.18)}}
 </style>
 </head>
 <body>
@@ -93,8 +241,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:#050510;font-family:
 
 <canvas id="gameCanvas"></canvas>
 
+<div id="fxLayer"><div id="fxScreenFlash"></div></div>
+<div id="screenHitFx"></div>
+<div id="bossWarning"></div>
+<div id="shipEngineFx"><div class="flame"></div></div>
+<div id="shipShieldFx"><div class="ring"></div></div>
+<div id="shipFireRingFx"><div class="ring"></div></div>
+
 <div id="ui">
-  <div class="ui-box">SCORE<br><span id="scoreVal">0</span></div>
+  <div class="ui-box">SCORE<br><span id="scoreVal">0</span><span id="bestVal" class="best-label">BEST 0</span></div>
   <div class="ui-box">LVL<br><span id="levelVal">1</span></div>
   <div id="hpBar"><div id="hpFill"></div></div>
   <div class="ui-box">🪙<br><span id="coinVal">0</span></div>
@@ -195,7 +350,7 @@ class SpaceWar{
     this.totalCoins=parseInt(localStorage.getItem('sw_coins')||'0');
     this.level=1;this.lives=3;this.maxLives=5;
     this.weapon='single';this.weaponTimer=0;
-    this.droneCount=0;this.fireRing=false;
+    this.droneCount=0;this.fireRing=false;this.startShield=false;
     this.username=localStorage.getItem('sw_name')||'';
     this.highScore=parseInt(localStorage.getItem('sw_hs')||'0');
 
@@ -203,6 +358,18 @@ class SpaceWar{
     this.bullets=[];this.enemies=[];this.particles=[];this.coinsList=[];this.powerups=[];
     this.boss=null;this.stars=[];this.keys={};
     this.bombs=3;this.bombCooldown=false;
+
+    // VFX-Elemente cachen (Explosionen, Treffer, Triebwerk, Schild, Feuerring)
+    this._fx={
+      layer:document.getElementById('fxLayer'),
+      screenFlash:document.getElementById('fxScreenFlash'),
+      screenHit:document.getElementById('screenHitFx'),
+      bossWarn:document.getElementById('bossWarning'),
+      engine:document.getElementById('shipEngineFx'),
+      shield:document.getElementById('shipShieldFx'),
+      ring:document.getElementById('shipFireRingFx')
+    };
+    this.applyOwnedUpgrades(); // Shop-Upgrades (Drohnen, Speed, Extra-Leben, Schild) anwenden
 
     this.touch={moveActive:false,moveX:0,moveY:0,moveStartX:0,moveStartY:0,fireActive:false,fireTouchId:null,moveTouchId:null};
     this.enemySpawnTimer=0;this.bossSpawned=false;
@@ -307,15 +474,17 @@ class SpaceWar{
     window.addEventListener('keyup',e=>this.keys[e.code]=false);
 
     // Touch - Multi-touch for Android
-    const canvas=this.canvas;
+    // WICHTIG: An document binden, nicht canvas! #moveZone/#fireBtn liegen als
+    // eigene Layer ÜBER dem Canvas (siehe #touchControls), touchstart auf ihnen
+    // bubble NICHT zum canvas hoch, da sie keine Kind-Elemente des Canvas sind.
 
-    canvas.addEventListener('touchstart',e=>{
-      e.preventDefault();
+    document.addEventListener('touchstart',e=>{
       for(let i=0;i<e.changedTouches.length;i++){
         const t=e.changedTouches[i];
         const fireBtn=document.getElementById('fireBtn');
         const fireRect=fireBtn.getBoundingClientRect();
-        if(t.clientX>=fireRect.left&&t.clientX<=fireRect.right&&t.clientY>=fireRect.top&&t.clientY<=fireRect.bottom){
+        if(fireRect.width>0&&t.clientX>=fireRect.left&&t.clientX<=fireRect.right&&t.clientY>=fireRect.top&&t.clientY<=fireRect.bottom){
+          e.preventDefault();
           this.touch.fireTouchId=t.identifier;
           fireBtn.style.transform='scale(0.9)';
           this.fireBomb();
@@ -323,7 +492,8 @@ class SpaceWar{
         }
         const moveZone=document.getElementById('moveZone');
         const moveRect=moveZone.getBoundingClientRect();
-        if(t.clientX>=moveRect.left-40&&t.clientX<=moveRect.right+40&&t.clientY>=moveRect.top-40&&t.clientY<=moveRect.bottom+40){
+        if(moveRect.width>0&&t.clientX>=moveRect.left-40&&t.clientX<=moveRect.right+40&&t.clientY>=moveRect.top-40&&t.clientY<=moveRect.bottom+40){
+          e.preventDefault();
           this.touch.moveActive=true;this.touch.moveTouchId=t.identifier;
           this.touch.moveStartX=moveRect.left+moveRect.width/2;
           this.touch.moveStartY=moveRect.top+moveRect.height/2;
@@ -333,19 +503,18 @@ class SpaceWar{
       }
     },{passive:false});
 
-    canvas.addEventListener('touchmove',e=>{
-      e.preventDefault();
+    document.addEventListener('touchmove',e=>{
       for(let i=0;i<e.changedTouches.length;i++){
         const t=e.changedTouches[i];
         if(t.identifier===this.touch.moveTouchId){
+          e.preventDefault();
           this.touch.moveX=t.clientX;this.touch.moveY=t.clientY;
           this.updateJoystick();
         }
       }
     },{passive:false});
 
-    canvas.addEventListener('touchend',e=>{
-      e.preventDefault();
+    document.addEventListener('touchend',e=>{
       for(let i=0;i<e.changedTouches.length;i++){
         const t=e.changedTouches[i];
         if(t.identifier===this.touch.fireTouchId){
@@ -359,8 +528,7 @@ class SpaceWar{
       }
     },{passive:false});
 
-    canvas.addEventListener('touchcancel',e=>{
-      e.preventDefault();
+    document.addEventListener('touchcancel',e=>{
       this.touch.fireActive=false;this.touch.moveActive=false;
       this.touch.fireTouchId=null;this.touch.moveTouchId=null;
       document.getElementById('fireBtn').style.transform='';
@@ -429,11 +597,13 @@ class SpaceWar{
 
   startGame(){
     this.state='playing';
-    this.score=0;this.coins=0;this.level=1;this.lives=3;
-    this.weapon='single';this.weaponTimer=0;this.droneCount=0;this.fireRing=false;this.bombs=3;this.bombCooldown=false;
+    this.score=0;this.coins=0;this.level=1;
+    this.weapon='single';this.weaponTimer=0;this.fireRing=false;this.bombs=3;this.bombCooldown=false;
+    this.applyOwnedUpgrades(); // Drohnen/Speed/Extra-Leben/Schild aus dem Shop anwenden
+    this.lives=3+(this.hasExtraLife?1:0);
     this.bullets=[];this.enemies=[];this.particles=[];this.coinsList=[];this.powerups=[];
     this.boss=null;this.bossSpawned=false;this.levelKills=0;this.killsNeeded=10;
-    this.shake=0;this.invulnerable=0;
+    this.shake=0;this.invulnerable=this.startShield?5:0;
     this.ship.x=window.innerWidth/2;this.ship.y=window.innerHeight-80;
     this.ship.vx=0;this.ship.vy=0;this.enemySpawnTimer=0;this.lastShot=0;
 
@@ -465,7 +635,7 @@ class SpaceWar{
   showOverlay(id){const el=document.getElementById(id);if(el)el.classList.remove('hidden')}
 
   updateShip(dt){
-    const accel=7*dt,maxSpeed=this.isMobile?5:6;
+    const accel=7*dt*(this.ship.speed/5); // Speed-Boost aus Shop wirkt sich jetzt aus
     if(this.touch.moveActive){
       const zone=document.getElementById('moveZone');
       const rect=zone.getBoundingClientRect();
@@ -498,6 +668,8 @@ class SpaceWar{
     if(this.lastShot&&now-this.lastShot<fireRate)return;
     this.lastShot=now;this.play('shoot');
     const spread=this.weapon==='triple'?3:this.weapon==='penta'?5:1;
+    const weaponColors={single:'#0ff',triple:'#0ff',penta:'#0ff',rapid:'#ff0',heavy:'#ff6b35',plasma:'#f0f'};
+    const bulletColor=weaponColors[this.weapon]||'#0ff';
     for(let i=0;i<spread;i++){
       const angle=-Math.PI/2+(i-(spread-1)/2)*.25;
       this.bullets.push({
@@ -505,9 +677,10 @@ class SpaceWar{
         vx:Math.cos(angle)*10,vy:Math.sin(angle)*10,
         damage:this.weapon==='heavy'?3:1,
         size:this.weapon==='heavy'?5:3,
-        color:this.weapon==='plasma'?'#f0f':'#0ff',life:100
+        color:bulletColor,life:100
       });
     }
+    this.spawnMuzzleFx(bulletColor);
     if(this.droneCount>0){
       for(let i=0;i<this.droneCount;i++){
         const angle=(Date.now()/1000+i*Math.PI*2/this.droneCount);
@@ -548,6 +721,7 @@ class SpaceWar{
     document.getElementById('bossBar').style.display='block';
     document.getElementById('bossName').style.display='block';
     document.getElementById('bossName').textContent=b.name;
+    this.showBossWarning(b.name);
   }
 
   spawnCoin(x,y,value){
@@ -580,6 +754,7 @@ class SpaceWar{
           const dx=b.x-e.x,dy=b.y-e.y,dist=Math.sqrt(dx*dx+dy*dy);
           if(dist<e.size+b.size){
             e.hp-=b.damage;this.createParticles(e.x,e.y,e.color,4);
+            this.spawnHitFx(b.x,b.y,e.color);
             this.bullets.splice(i,1);
             if(e.hp<=0){this.destroyEnemy(e,j)}
             break;
@@ -589,6 +764,7 @@ class SpaceWar{
           const dx=b.x-this.boss.x,dy=b.y-this.boss.y,dist=Math.sqrt(dx*dx+dy*dy);
           if(dist<this.boss.size+b.size){
             this.boss.hp-=b.damage;this.createParticles(this.boss.x,this.boss.y,this.boss.color,6);
+            this.spawnHitFx(b.x,b.y,this.boss.color);
             this.bullets.splice(i,1);
             if(this.boss.hp<=0){this.destroyBoss()}
           }
@@ -646,6 +822,7 @@ class SpaceWar{
     this.play('explode');
     this.score+=10*this.level;this.levelKills++;
     this.createParticles(e.x,e.y,e.color,12);
+    this.spawnExplosionFx(e.x,e.y,e.size,e.color);
     const coinCount=Math.floor(Math.random()*2)+1+Math.floor(this.level/3);
     for(let c=0;c<coinCount;c++)this.spawnCoin(e.x+(Math.random()-.5)*16,e.y+(Math.random()-.5)*16,Math.floor(this.level/2)+1);
     if(Math.random()<.12)this.spawnPowerup(e.x,e.y);
@@ -658,6 +835,12 @@ class SpaceWar{
     this.score+=400*this.level;this.coins+=40*this.level;this.totalCoins+=40*this.level;
     localStorage.setItem('sw_coins',this.totalCoins);
     this.createParticles(this.boss.x,this.boss.y,this.boss.color,40);
+    this.spawnExplosionFx(this.boss.x,this.boss.y,this.boss.size,this.boss.color,true);
+    // Mehrstufige Sekundärexplosionen für einen spektakulären Boss-Tod
+    const bx=this.boss.x,by=this.boss.y,bsize=this.boss.size;
+    for(let k=1;k<=3;k++){
+      setTimeout(()=>this.spawnExplosionFx(bx+(Math.random()-.5)*bsize*1.3,by+(Math.random()-.5)*bsize*1.3,30,'#ff66ff'),k*150);
+    }
     for(let c=0;c<15;c++)this.spawnCoin(this.boss.x+(Math.random()-.5)*50,this.boss.y+(Math.random()-.5)*50,4);
     this.boss=null;this.bossSpawned=false;
     this.level++;this.levelKills=0;this.killsNeeded=10+this.level*4;
