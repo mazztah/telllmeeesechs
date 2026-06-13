@@ -369,9 +369,12 @@ class SpaceWar{
       shield:document.getElementById('shipShieldFx'),
       ring:document.getElementById('shipFireRingFx')
     };
-    this.applyOwnedUpgrades(); // Shop-Upgrades (Drohnen, Speed, Extra-Leben, Schild) anwenden
+    // Shop-Upgrades (Drohnen, Speed, Extra-Leben, Schild) anwenden
+    // Wichtig: applyOwnedUpgrades() muss existieren, sonst crasht der Constructor und der Loading-Screen bleibt hängen.
+    this.applyOwnedUpgrades();
 
     this.touch={moveActive:false,moveX:0,moveY:0,moveStartX:0,moveStartY:0,fireActive:false,fireTouchId:null,moveTouchId:null};
+
     this.enemySpawnTimer=0;this.bossSpawned=false;
     this.levelKills=0;this.killsNeeded=10;
     this.shake=0;this.invulnerable=0;
@@ -595,9 +598,48 @@ class SpaceWar{
     document.getElementById('moveKnob').style.transform='translate(-50%,-50%)';
   }
 
+  // Apply Shop Upgrades from LocalStorage
+  applyOwnedUpgrades(){
+    // defaults
+    this.hasExtraLife=false;
+
+    // owned hearts -> extra life
+    this.hasExtraLife=localStorage.getItem('sw_owned_heart')==='true';
+
+    // speed boost
+    if(localStorage.getItem('sw_owned_speed')==='true'){
+      this.ship.speed += 0.8;
+    }
+
+    // drone upgrades
+    if(localStorage.getItem('sw_owned_drone3')==='true'){
+      this.droneCount = 3;
+    }else if(localStorage.getItem('sw_owned_drone2')==='true'){
+      this.droneCount = Math.max(this.droneCount,2);
+    }else if(localStorage.getItem('sw_owned_drone1')==='true'){
+      this.droneCount = Math.max(this.droneCount,1);
+    }
+
+    // shield upgrade (passive invulnerability not active; startShield is used on game start)
+    this.startShield = localStorage.getItem('sw_owned_shield')==='true';
+    if(this.startShield){
+      // keep invulnerable=0; it will be set in startGame()
+      this.invulnerable = 0;
+    }
+
+    // weapon icons/powerups should start neutral
+    this.weapon='single';
+    this.weaponTimer=0;
+    this.fireRing=false;
+
+    // Ensure UI doesn't crash on first load
+    try{ this.updateWeaponUI(); }catch(e){}
+  }
+
   startGame(){
     this.state='playing';
     this.score=0;this.coins=0;this.level=1;
+
     this.weapon='single';this.weaponTimer=0;this.fireRing=false;this.bombs=3;this.bombCooldown=false;
     this.applyOwnedUpgrades(); // Drohnen/Speed/Extra-Leben/Schild aus dem Shop anwenden
     this.lives=3+(this.hasExtraLife?1:0);
