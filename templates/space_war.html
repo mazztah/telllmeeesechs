@@ -80,6 +80,21 @@ html,body{width:100%;height:100%;overflow:hidden;background:#050510;font-family:
 @keyframes levelUpAnim{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}20%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.4) translateY(-40px)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 
+/* FX: DOM-based neon hit/explosion */
+.fx{position:fixed;left:0;top:0;z-index:1200;pointer-events:none;transform:translate(-50%,-50%);width:18px;height:18px;will-change:transform,opacity,filter;}
+.fx-hit{width:22px;height:22px;opacity:0;filter:drop-shadow(0 0 10px #0ff);
+  background:radial-gradient(circle at 30% 30%, rgba(255,255,255,.9) 0%, rgba(0,255,255,.9) 22%, rgba(0,255,255,.3) 55%, rgba(0,255,255,0) 72%);
+  border-radius:50%;
+  animation:fxHit .42s ease-out forwards;
+}
+.fx-explode{width:12px;height:12px;opacity:0;filter:drop-shadow(0 0 18px #ff0) drop-shadow(0 0 32px #f0f);
+  background:radial-gradient(circle at 50% 50%, rgba(255,255,255,1) 0%, rgba(255,220,50,.95) 20%, rgba(255,0,255,.65) 42%, rgba(255,0,255,0) 70%);
+  border-radius:50%;
+  animation:fxExplode .7s ease-out forwards;
+}
+@keyframes fxHit{0%{opacity:0;transform:translate(-50%,-50%) scale(.2)}15%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}100%{opacity:0;transform:translate(-50%,-50%) scale(2.4)}}
+@keyframes fxExplode{0%{opacity:0;transform:translate(-50%,-50%) scale(.25)}10%{opacity:1;transform:translate(-50%,-50%) scale(1.05)}60%{opacity:.6;transform:translate(-50%,-50%) scale(2.8)}100%{opacity:0;transform:translate(-50%,-50%) scale(4.2)}}
+
 @media(max-width:768px){#touchControls{display:flex!important}#ui{padding:6px 8px}.btn{min-width:160px}.shop-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:380px){#moveZone{width:110px;height:110px}#moveKnob{width:40px;height:40px}#fireBtn{width:65px;height:65px}#fireBtn::after{font-size:24px}.shop-grid{gap:8px}.shop-item{padding:10px 6px}}
 </style>
@@ -572,8 +587,11 @@ class SpaceWar{
           // Enemy bullet: check collision with player ship
           const dx=b.x-this.ship.x,dy=b.y-this.ship.y,dist=Math.sqrt(dx*dx+dy*dy);
           if(dist<this.ship.size+b.size&&this.invulnerable<=0){
-            this.bullets.splice(i,1);this.hit();
+            this.bullets.splice(i,1);
+            this.spawnDOMFx('hit',this.ship.x,this.ship.y,'#0ff');
+            this.hit();
           }
+
         }else{
         for(let j=this.enemies.length-1;j>=0;j--){
           const e=this.enemies[j];
@@ -645,7 +663,9 @@ class SpaceWar{
   destroyEnemy(e,i){
     this.play('explode');
     this.score+=10*this.level;this.levelKills++;
+    this.spawnDOMFx('explode',e.x,e.y,e.color);
     this.createParticles(e.x,e.y,e.color,12);
+
     const coinCount=Math.floor(Math.random()*2)+1+Math.floor(this.level/3);
     for(let c=0;c<coinCount;c++)this.spawnCoin(e.x+(Math.random()-.5)*16,e.y+(Math.random()-.5)*16,Math.floor(this.level/2)+1);
     if(Math.random()<.12)this.spawnPowerup(e.x,e.y);
@@ -747,7 +767,8 @@ class SpaceWar{
     }
     this.enemies=[];
     // Also damage boss
-    if(this.boss){this.boss.hp=Math.max(1,this.boss.hp-15);this.createParticles(this.boss.x,this.boss.y,this.boss.color,30)}
+    if(this.boss){this.boss.hp=Math.max(1,this.boss.hp-15);this.spawnDOMFx('explode',this.boss.x,this.boss.y,this.boss.color);this.createParticles(this.boss.x,this.boss.y,this.boss.color,30)}
+
     // Screen flash
     this._bombFlash=8;
     this.updateUI();
@@ -784,6 +805,37 @@ class SpaceWar{
       this.particles.push({x,y,vx:Math.cos(angle)*Math.random()*4,vy:Math.sin(angle)*Math.random()*4,life:25+Math.random()*15,size:Math.random()*3+1,color});
     }
   }
+
+  spawnDOMFx(kind,x,y,color){
+    // kind: 'hit' | 'explode'
+    // x/y are canvas coordinates in CSS pixels (because we draw in CSS pixels)
+    // limit DOM FX for performance
+    if(!this._domFxCount) this._domFxCount=0;
+    this._domFxCount++;
+    if(this._domFxCount%8!==0){}
+
+    const maxDom=40;
+    if(this._domFxAlive && this._domFxAlive>maxDom) return;
+    if(!this._domFxAlive) this._domFxAlive=0;
+
+    const el=document.createElement('div');
+    el.className='fx '+(kind==='explode'?'fx-explode':'fx-hit');
+    // color tint (optional)
+    if(color){
+      if(kind==='hit') el.style.filter=`drop-shadow(0 0 10px ${color})`; 
+      if(kind==='explode') el.style.filter=`drop-shadow(0 0 18px #ff0) drop-shadow(0 0 32px ${color})`;
+    }
+    el.style.left=x+'px';
+    el.style.top=y+'px';
+    this._domFxAlive++;
+    document.body.appendChild(el);
+    const lifeMs=kind==='explode'?720:450;
+    setTimeout(()=>{
+      try{el.remove();}catch(e){}
+      if(this._domFxAlive>0) this._domFxAlive--;
+    },lifeMs);
+  }
+
 
   updateParticles(dt){
     for(let i=this.particles.length-1;i>=0;i--){
