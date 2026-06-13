@@ -369,12 +369,9 @@ class SpaceWar{
       shield:document.getElementById('shipShieldFx'),
       ring:document.getElementById('shipFireRingFx')
     };
-    // Shop-Upgrades (Drohnen, Speed, Extra-Leben, Schild) anwenden
-    // Wichtig: applyOwnedUpgrades() muss existieren, sonst crasht der Constructor und der Loading-Screen bleibt hängen.
-    this.applyOwnedUpgrades();
+    this.applyOwnedUpgrades(); // Shop-Upgrades (Drohnen, Speed, Extra-Leben, Schild) anwenden
 
     this.touch={moveActive:false,moveX:0,moveY:0,moveStartX:0,moveStartY:0,fireActive:false,fireTouchId:null,moveTouchId:null};
-
     this.enemySpawnTimer=0;this.bossSpawned=false;
     this.levelKills=0;this.killsNeeded=10;
     this.shake=0;this.invulnerable=0;
@@ -384,6 +381,10 @@ class SpaceWar{
     this.isMobile=/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
     this.initAudio();this.initStars();this.setupEvents();
+
+    // Menü-Stats direkt beim Start befüllen
+    document.getElementById('menuHighScore').textContent=this.highScore;
+    document.getElementById('menuCoins').textContent=this.totalCoins;
 
     setTimeout(()=>{
       document.getElementById('loadingScreen').classList.add('hidden');
@@ -598,48 +599,9 @@ class SpaceWar{
     document.getElementById('moveKnob').style.transform='translate(-50%,-50%)';
   }
 
-  // Apply Shop Upgrades from LocalStorage
-  applyOwnedUpgrades(){
-    // defaults
-    this.hasExtraLife=false;
-
-    // owned hearts -> extra life
-    this.hasExtraLife=localStorage.getItem('sw_owned_heart')==='true';
-
-    // speed boost
-    if(localStorage.getItem('sw_owned_speed')==='true'){
-      this.ship.speed += 0.8;
-    }
-
-    // drone upgrades
-    if(localStorage.getItem('sw_owned_drone3')==='true'){
-      this.droneCount = 3;
-    }else if(localStorage.getItem('sw_owned_drone2')==='true'){
-      this.droneCount = Math.max(this.droneCount,2);
-    }else if(localStorage.getItem('sw_owned_drone1')==='true'){
-      this.droneCount = Math.max(this.droneCount,1);
-    }
-
-    // shield upgrade (passive invulnerability not active; startShield is used on game start)
-    this.startShield = localStorage.getItem('sw_owned_shield')==='true';
-    if(this.startShield){
-      // keep invulnerable=0; it will be set in startGame()
-      this.invulnerable = 0;
-    }
-
-    // weapon icons/powerups should start neutral
-    this.weapon='single';
-    this.weaponTimer=0;
-    this.fireRing=false;
-
-    // Ensure UI doesn't crash on first load
-    try{ this.updateWeaponUI(); }catch(e){}
-  }
-
   startGame(){
     this.state='playing';
     this.score=0;this.coins=0;this.level=1;
-
     this.weapon='single';this.weaponTimer=0;this.fireRing=false;this.bombs=3;this.bombCooldown=false;
     this.applyOwnedUpgrades(); // Drohnen/Speed/Extra-Leben/Schild aus dem Shop anwenden
     this.lives=3+(this.hasExtraLife?1:0);
@@ -748,7 +710,7 @@ class SpaceWar{
       case'zigzag':speed=2.2;vx=0;vy=speed;size=13;color='#ff44ff';break;
       case'chaser':speed=1.8;vx=0;vy=speed*.5;size=15;color='#ff0000';hp=2;break;
     }
-    this.enemies.push({x,y,vx,vy,hp,maxHp:hp,type,size,color,angle,wobble:Math.random()*Math.PI*2,shootTimer:0});
+    this.enemies.push({x,y,vx,vy,hp,maxHp:hp,type,size,color,angle:0,wobble:Math.random()*Math.PI*2,shootTimer:0});
   }
 
   spawnBoss(){
@@ -956,17 +918,20 @@ class SpaceWar{
     if(this.invulnerable>0)return;
     this.play('hit');this.lives--;this.shake=8;this.invulnerable=1.8;
     this.createParticles(this.ship.x,this.ship.y,'#0ff',15);
+    this.triggerScreenHit();
     if(this.lives<=0)this.gameOver();
   }
 
   fireBomb(){
     if(this.bombs<=0||this.state!=='playing')return;
     this.bombs--;this.play('boss');this.shake=14;
+    this.spawnShockwave(this.ship.x,this.ship.y);
     // Kill all enemies on screen
     for(let i=this.enemies.length-1;i>=0;i--){
       const e=this.enemies[i];
       this.score+=5*this.level;
       this.createParticles(e.x,e.y,e.color,12);
+      this.spawnExplosionFx(e.x,e.y,e.size,e.color);
       const coins=Math.floor(Math.random()*2)+1;
       for(let c=0;c<coins;c++)this.spawnCoin(e.x+(Math.random()-.5)*20,e.y+(Math.random()-.5)*20,1);
     }
@@ -982,10 +947,18 @@ class SpaceWar{
   gameOver(){
     this.state='gameover';
     if(this.score>this.highScore){this.highScore=this.score;localStorage.setItem('sw_hs',this.highScore)}
+    this.totalCoins+=this.coins;localStorage.setItem('sw_coins',this.totalCoins);
     document.getElementById('finalScore').textContent=this.score;
     document.getElementById('finalLevel').textContent=this.level;
     document.getElementById('finalCoins').textContent=this.coins;
     document.getElementById('gameOverOverlay').classList.remove('hidden');
+    document.getElementById('bossBar').style.display='none';
+    document.getElementById('bossName').style.display='none';
+    this.boss=null;
+    // Menü-Stats sofort aktualisieren damit sie beim nächsten Öffnen korrekt sind
+    document.getElementById('menuHighScore').textContent=this.highScore;
+    document.getElementById('menuCoins').textContent=this.totalCoins;
+    if(this._fx?.engine)this._fx.engine.classList.remove('show');
     this.saveScore();
     if(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.HapticFeedback){
       Telegram.WebApp.HapticFeedback.notificationOccurred('error');
@@ -1008,20 +981,16 @@ class SpaceWar{
       const angle=Math.random()*Math.PI*2;
       this.particles.push({x,y,vx:Math.cos(angle)*Math.random()*4,vy:Math.sin(angle)*Math.random()*4,life:25+Math.random()*15,size:Math.random()*3+1,color});
     }
+    const MAX_PARTICLES=160; // Performance-Cap gegen ausuferndes Wachstum
+    if(this.particles.length>MAX_PARTICLES)this.particles.splice(0,this.particles.length-MAX_PARTICLES);
   }
 
   updateParticles(dt){
-    // Hard limit gegen Freeze bei Touch-Bugs/FX-Spam
-    const MAX_PARTICLES=650;
-    if(this.particles.length>MAX_PARTICLES){
-      this.particles.splice(0,this.particles.length-MAX_PARTICLES);
-    }
     for(let i=this.particles.length-1;i>=0;i--){
       const p=this.particles[i];p.x+=p.vx;p.y+=p.vy;p.life--;
       if(p.life<=0)this.particles.splice(i,1);
     }
   }
-
 
   updateStars(dt){
     for(const s of this.stars){
@@ -1037,6 +1006,12 @@ class SpaceWar{
     document.getElementById('hpFill').style.width=(this.lives/this.maxLives*100)+'%';
     const bombEl=document.getElementById('bombVal');
     if(bombEl){bombEl.textContent=this.bombs;bombEl.style.color=this.bombs>0?'#0ff':'#555'}
+    const bestEl=document.getElementById('bestVal');
+    if(bestEl){
+      const isNew=this.score>this.highScore&&this.score>0;
+      bestEl.textContent='BEST '+(isNew?this.score:this.highScore);
+      bestEl.classList.toggle('new',isNew);
+    }
   }
 
   openShop(){
@@ -1107,15 +1082,6 @@ class SpaceWar{
         this.ctx.fillStyle=`rgba(255,220,50,${this._bombFlash/8*0.45})`;
         this.ctx.fillRect(0,0,window.innerWidth,window.innerHeight);
       }
-      if(this.fireRing){
-        this.ctx.strokeStyle='#ff0';this.ctx.lineWidth=3;
-        this.ctx.beginPath();this.ctx.arc(this.ship.x,this.ship.y,55,0,Math.PI*2);this.ctx.stroke();
-        for(let i=this.enemies.length-1;i>=0;i--){
-          const e=this.enemies[i];
-          const dx=e.x-this.ship.x,dy=e.y-this.ship.y,dist=Math.sqrt(dx*dx+dy*dy);
-          if(dist<55){e.hp-=2;this.createParticles(e.x,e.y,'#ff0',3);if(e.hp<=0){this.destroyEnemy(e,i);i--}}
-        }
-      }
       if(this.invulnerable>0){
         this.invulnerable-=this.deltaTime;
         this.ctx.globalAlpha=.5+Math.sin(Date.now()/80)*.3;
@@ -1147,9 +1113,32 @@ class SpaceWar{
 
   drawBullet(b){
     this.ctx.save();
-    this.ctx.shadowBlur=8;this.ctx.shadowColor=b.color;
-    this.ctx.fillStyle=b.color;
-    this.ctx.beginPath();this.ctx.arc(b.x,b.y,b.size,0,Math.PI*2);this.ctx.fill();
+    if(b.drone){
+      // Mini-Drohnenschiff statt schlichtem Punkt
+      const ang=Math.atan2(b.vy,b.vx)+Math.PI/2;
+      this.ctx.translate(b.x,b.y);this.ctx.rotate(ang);
+      this.ctx.shadowBlur=10;this.ctx.shadowColor='#39ff8c';
+      this.ctx.fillStyle='#39ff8c';
+      this.ctx.beginPath();
+      this.ctx.moveTo(0,-6);this.ctx.lineTo(-5,5);this.ctx.lineTo(0,2);this.ctx.lineTo(5,5);
+      this.ctx.closePath();this.ctx.fill();
+      this.ctx.fillStyle='#d4fff0';
+      this.ctx.beginPath();this.ctx.arc(0,-1,2,0,Math.PI*2);this.ctx.fill();
+    }else{
+      // Weicher Trail hinter dem Geschoss
+      this.ctx.globalAlpha=.35;
+      this.ctx.shadowBlur=12;this.ctx.shadowColor=b.color;
+      this.ctx.fillStyle=b.color;
+      this.ctx.beginPath();this.ctx.arc(b.x-b.vx*0.5,b.y-b.vy*0.5,b.size*1.4,0,Math.PI*2);this.ctx.fill();
+      // Äußerer Glow
+      this.ctx.globalAlpha=.4;
+      this.ctx.beginPath();this.ctx.arc(b.x,b.y,b.size*2.2,0,Math.PI*2);this.ctx.fill();
+      // Heller Kern
+      this.ctx.globalAlpha=1;this.ctx.shadowBlur=8;
+      this.ctx.beginPath();this.ctx.arc(b.x,b.y,b.size,0,Math.PI*2);this.ctx.fill();
+      this.ctx.fillStyle='#fff';
+      this.ctx.beginPath();this.ctx.arc(b.x,b.y,b.size*0.45,0,Math.PI*2);this.ctx.fill();
+    }
     this.ctx.restore();
   }
 
@@ -1219,30 +1208,167 @@ class SpaceWar{
     this.ctx.globalAlpha=1;
   }
 
+  // ===================================================================
+  // Shop-Upgrades: persistent aus localStorage anwenden
+  // (Fix: vorher wurden Drohnen/Speed/Extra-Leben/Schild bei jedem
+  //  startGame() stillschweigend zurückgesetzt und gingen "verloren")
+  // ===================================================================
+  applyOwnedUpgrades(){
+    const owned=id=>localStorage.getItem('sw_owned_'+id)==='true';
+    this.hasExtraLife=owned('heart');
+    this.maxLives=5+(this.hasExtraLife?1:0);
+    this.ship.speed=5+(owned('speed')?.8:0);
+    this.droneCount=owned('drone3')?3:owned('drone2')?2:owned('drone1')?1:0;
+    this.startShield=owned('shield');
+  }
+
+  // ===================================================================
+  // VFX-Helfer: DOM-Overlay-Layer für CSS-Animationen
+  // ===================================================================
+  _fxChild(cls){const d=document.createElement('div');d.className=cls;return d}
+
+  spawnExplosionFx(x,y,size,color,isBoss){
+    if(!this._fx?.layer)return;
+    const el=document.createElement('div');
+    el.className='fx-explosion'+(isBoss?' boss':'');
+    el.style.left=x+'px';el.style.top=y+'px';
+    const sz=Math.max(40,size*3);
+    el.style.setProperty('--sz',sz+'px');
+    el.style.setProperty('--c1',color);
+    el.style.setProperty('--c2',isBoss?'#ffffff':'#ff6b35');
+    el.appendChild(this._fxChild('core'));
+    el.appendChild(this._fxChild('ring'));
+    const sparkCount=isBoss?14:7;
+    for(let i=0;i<sparkCount;i++){
+      const spark=this._fxChild('spark');
+      const ang=Math.random()*Math.PI*2,dist=sz*0.4+Math.random()*sz*0.6;
+      spark.style.setProperty('--dx',Math.cos(ang)*dist+'px');
+      spark.style.setProperty('--dy',Math.sin(ang)*dist+'px');
+      el.appendChild(spark);
+    }
+    this._fx.layer.appendChild(el);
+    setTimeout(()=>el.remove(),isBoss?1000:700);
+    if(isBoss){
+      const flash=this._fx.screenFlash;
+      flash.classList.remove('go');void flash.offsetWidth;flash.classList.add('go');
+    }
+  }
+
+  spawnHitFx(x,y,color){
+    if(!this._fx?.layer)return;
+    const el=document.createElement('div');
+    el.className='fx-hit';
+    el.style.left=x+'px';el.style.top=y+'px';
+    el.style.setProperty('--c1',color);
+    el.appendChild(this._fxChild('core'));
+    for(let i=0;i<4;i++){
+      const spark=this._fxChild('spark');
+      const ang=Math.random()*Math.PI*2,dist=10+Math.random()*14;
+      spark.style.setProperty('--dx',Math.cos(ang)*dist+'px');
+      spark.style.setProperty('--dy',Math.sin(ang)*dist+'px');
+      el.appendChild(spark);
+    }
+    this._fx.layer.appendChild(el);
+    setTimeout(()=>el.remove(),320);
+  }
+
+  spawnMuzzleFx(color){
+    if(!this._fx?.layer)return;
+    const el=document.createElement('div');
+    el.className='fx-muzzle';
+    el.style.setProperty('--c1',color||'#0ff');
+    el.style.left=this.ship.x+'px';
+    el.style.top=(this.ship.y-this.ship.size)+'px';
+    this._fx.layer.appendChild(el);
+    setTimeout(()=>el.remove(),160);
+  }
+
+  spawnShockwave(x,y){
+    if(!this._fx?.layer)return;
+    const el=document.createElement('div');
+    el.className='fx-shockwave';
+    el.style.left=x+'px';el.style.top=y+'px';
+    this._fx.layer.appendChild(el);
+    setTimeout(()=>el.remove(),720);
+  }
+
+  triggerScreenHit(){
+    const el=this._fx?.screenHit;
+    if(!el)return;
+    el.classList.remove('go');void el.offsetWidth;el.classList.add('go');
+  }
+
+  showBossWarning(name){
+    const el=this._fx?.bossWarn;
+    if(!el)return;
+    el.textContent='⚠️ '+name+' ⚠️';
+    el.classList.remove('go');void el.offsetWidth;el.classList.add('go');
+  }
+
+  // Triebwerk/Schild/Feuerring jeden Frame an Schiffsposition syncen
+  syncShipFx(){
+    if(!this._fx)return;
+    const ship=this.ship;
+    const playing=(this.state==='playing'||this.state==='paused');
+    const tilt=Math.max(-.38,Math.min(.38,ship.vx*0.045));
+
+    const engine=this._fx.engine;
+    engine.style.left=ship.x+'px';
+    engine.style.top=(ship.y+ship.size*0.5)+'px';
+    engine.style.transform=`rotate(${tilt}rad)`;
+    engine.classList.toggle('show',playing);
+    engine.classList.toggle('boost',Math.hypot(ship.vx,ship.vy)>2.2);
+
+    const shield=this._fx.shield;
+    shield.style.left=ship.x+'px';shield.style.top=ship.y+'px';
+    shield.classList.toggle('on',playing&&this.invulnerable>0);
+
+    const ring=this._fx.ring;
+    ring.style.left=ship.x+'px';ring.style.top=ship.y+'px';
+    ring.classList.toggle('on',playing&&this.fireRing);
+  }
+
+  // Feuerring-Schaden (vorher fehlerhaft im draw() platziert, jetzt korrekt im Update-Schritt)
+  applyFireRing(dt){
+    if(!this.fireRing)return;
+    for(let i=this.enemies.length-1;i>=0;i--){
+      const e=this.enemies[i];
+      const dx=e.x-this.ship.x,dy=e.y-this.ship.y,dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<55){
+        e.hp-=2;this.createParticles(e.x,e.y,'#ff0',1);
+        if(e.hp<=0)this.destroyEnemy(e,i);
+      }
+    }
+  }
+
   loop(timestamp){
     this.deltaTime=(timestamp-this.lastTime)/1000;
     this.lastTime=timestamp;
     if(this.deltaTime>.1)this.deltaTime=.1;
-    if(this.state==='playing'){
-      this.updateShip(this.deltaTime);
-      this.updateBullets(this.deltaTime);
-      this.updateEnemies(this.deltaTime);
-      if(this.boss)this.updateBoss(this.deltaTime);
-      this.updateCoins(this.deltaTime);
-      this.updatePowerups(this.deltaTime);
-      this.updateParticles(this.deltaTime);
-      this.updateStars(this.deltaTime);
-      this.weaponTimer-=this.deltaTime*60;if(this.weaponTimer<=0){this.weapon='single';this.updateWeaponUI()}}
-      // Shoot nur wenn Fire aktiv (Touch halten) oder Space gedrückt (Keyboard)
-      if(this.touch.fireActive||this.keys['Space']) this.shoot();
-      // Bomb nur via Space + cooldown (nicht bei Touch)
-      if(this.keys['Space']&&!this.bombCooldown){this.bombCooldown=true;this.fireBomb()}
-      if(!this.keys['Space'])this.bombCooldown=false;
-      this.updateUI();
-    }else{
-      this.updateStars(this.deltaTime);
+    try{
+      if(this.state==='playing'){
+        this.updateShip(this.deltaTime);
+        this.updateBullets(this.deltaTime);
+        this.updateEnemies(this.deltaTime);
+        if(this.boss)this.updateBoss(this.deltaTime);
+        this.updateCoins(this.deltaTime);
+        this.updatePowerups(this.deltaTime);
+        this.updateParticles(this.deltaTime);
+        this.updateStars(this.deltaTime);
+        this.applyFireRing(this.deltaTime);
+        if(this.weaponTimer>0){this.weaponTimer-=this.deltaTime*60;if(this.weaponTimer<=0){this.weapon='single';this.updateWeaponUI()}}
+        this.shoot();
+        if(this.keys['Space']&&!this.bombCooldown){this.bombCooldown=true;this.fireBomb()}
+        if(!this.keys['Space'])this.bombCooldown=false;
+        this.updateUI();
+      }else{
+        this.updateStars(this.deltaTime);
+      }
+      this.syncShipFx();
+      this.draw();
+    }catch(err){
+      console.error('SpaceWar loop error:',err);
     }
-    this.draw();
     requestAnimationFrame(t=>this.loop(t));
   }
 }
