@@ -14,7 +14,7 @@ GTIN_LENGTHS = {8, 12, 13, 14}
 LOOKUP_TIMEOUT_SECONDS = float(os.getenv("SCANNER_LOOKUP_TIMEOUT_SECONDS", "6.0"))
 LOOKUP_USER_AGENT = os.getenv(
     "SCANNER_USER_AGENT",
-    "telllmeeedrei-scanner/1.0 (+https://huggyooo-telllmeeedrei-bot.hf.space/)"
+    "telllmeeesechs-scanner/1.0 (+https://telllmeeesechs.onrender.com/)"
 )
 
 
