@@ -106,7 +106,7 @@ except ImportError as e:
 
 try:
     from scanner_mini_app import app as scanner_mini_app
-except ImportError as e:
+except Exception as e:
     logger.warning(f"scanner_mini_app nicht verfuegbar: {e}")
     scanner_mini_app = None
 
@@ -613,10 +613,14 @@ if application:
     application.add_handler(CommandHandler("py", cmd_py))
     application.add_handler(CommandHandler("htmlapp", cmd_htmlapp))
 
-    # === NEU: Sendcode Handler (mit PDF, ZIP, Einzeldateien) ===
-    from send_code_handler import cmd_send_code, sendcode_callback
-    application.add_handler(CommandHandler("sendcode", cmd_send_code))
-    application.add_handler(CallbackQueryHandler(sendcode_callback, pattern=r"^sendcode:"))
+    # === Sendcode Handler (mit PDF, ZIP, Einzeldateien) ===
+    try:
+        from send_code_handler import cmd_send_code, sendcode_callback as _sendcode_cb
+        application.add_handler(CommandHandler("sendcode", cmd_send_code))
+        application.add_handler(CallbackQueryHandler(_sendcode_cb, pattern=r"^sendcode:"))
+        logger.info("✅ send_code_handler geladen")
+    except Exception as e:
+        logger.warning("⚠️ send_code_handler nicht geladen: %s", e)
 
     application.add_handler(CallbackQueryHandler(handle_yt_pdf_callback, pattern=r"^ytpdf\|"))
     application.add_handler(CallbackQueryHandler(handle_email_callback, pattern=r"^email\|"))
@@ -646,14 +650,6 @@ if application:
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-
-        # Send Code – sicher gekapselt
-    try:
-        from send_code_handler import cmd_send_code
-        application.add_handler(CommandHandler("sendcode", cmd_send_code))
-        logger.info("✅ send_code_handler geladen")
-    except Exception as e:
-        logger.warning("⚠️ send_code_handler nicht geladen: %s", e)
 
     async def global_error_handler(update, context):
         err = context.error
