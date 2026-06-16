@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: telllmeeedrei
+    name: telllmeeesechs
     runtime: python
     buildCommand: pip install -U pip && pip install -r requirements.txt
     startCommand: gunicorn main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120 --workers 1
