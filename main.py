@@ -1736,8 +1736,25 @@ async def jobqueen_cv_analyze(request: Request):
             )
 
             reply = await generate_response(chat_id=chat_id, message=msg)
-            # robustes JSON parsing
-            profile = json.loads(reply) if reply else {}
+
+            # robustes JSON parsing (LLM liefert manchmal Text statt strikt JSON)
+            profile = {}
+            if reply:
+                try:
+                    profile = json.loads(reply)
+                except json.JSONDecodeError:
+                    # versuche JSON-Ausschnitt zu extrahieren
+                    start = reply.find('{')
+                    end = reply.rfind('}')
+                    if start != -1 and end != -1 and end > start:
+                        candidate = reply[start:end + 1]
+                        try:
+                            profile = json.loads(candidate)
+                        except Exception:
+                            profile = {}
+                    else:
+                        profile = {}
+
 
             from bot_state import jobqueen_state
             jobqueen_state.setdefault(chat_id, {})
