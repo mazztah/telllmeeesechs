@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>JobQueen – Workspace</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:      #0f0f1a;
+      --s1:      #1a1a2e;
+      --s2:      #252540;
+      --s3:      #2e2e50;
+      --border:  #2a2f3f;
+      --border2: #3a3f55;
+      --text:    #e8ecf4;
+      --text2:   #b8bdd4;
+      --muted:   #7a8099;
+      --accent:  #a78bfa;
+      --ad:      #7c3aed;
+      --gold:    #f5c242;
+      --green:   #34d399;
+      --red:     #ff3366;
+    }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body { height:100%; overflow:hidden; -webkit-font-smoothing:antialiased; }
+    body {
+      font-family:'Inter', system-ui, sans-serif;
+      background:var(--bg); color:var(--text);
+      display:flex; height:100dvh;
+    }
+    ::-webkit-scrollbar { width:5px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+
+    /* ── ICON NAV ──────────────────────────────────────── */
+    .nav-sidebar {
+      width:56px; flex-shrink:0;
+      background:var(--s1);
+      border-right:1px solid var(--border);
+      display:flex; flex-direction:column;
+      align-items:center; padding:12px 0; gap:4px;
+    }
+    .nav-logo {
+      font-size:1.2rem; margin-bottom:16px;
+      padding:8px; cursor:pointer;
+    }
+    .nav-sep { width:28px; height:1px; background:var(--border); margin:8px 0; }
+    .nav-icon {
+      width:38px; height:38px; border-radius:10px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:1rem; cursor:pointer; transition:all .2s;
+      position:relative; color:var(--muted);
+    }
+    .nav-icon:hover { background:var(--s2); color:var(--text); }
+    .nav-icon.active { background:rgba(167,139,250,0.15); color:var(--accent); }
+    .nav-icon[data-tip]::after {
+      content:attr(data-tip);
+      position:absolute; left:48px; top:50%; transform:translateY(-50%);
+      background:var(--s2); border:1px solid var(--border);
+      border-radius:6px; padding:4px 10px; font-size:0.72rem; white-space:nowrap;
+      color:var(--text); pointer-events:none; opacity:0; transition:opacity .2s;
+      z-index:999;
+    }
+    .nav-icon:hover[data-tip]::after { opacity:1; }
+
+    /* ── MAIN AREA ─────────────────────────────────────── */
+    .main {
+      flex:1; display:flex; flex-direction:column;
+      overflow:hidden;
+    }
+
+    /* Top bar */
+    .topbar {
+      height:52px; flex-shrink:0;
+      border-bottom:1px solid var(--border);
+      padding:0 20px;
+      display:flex; align-items:center; gap:12px;
+      background:var(--s1);
+    }
+    .topbar-title { font-size:0.88rem; font-weight:700; color:var(--text2); }
+    .topbar-title span { color:var(--accent); }
+    .spacer { flex:1; }
+    .topbar-badge {
+      padding:4px 10px; background:rgba(52,211,153,0.1);
+      border:1px solid rgba(52,211,153,0.3);
+      border-radius:100px; font-size:0.72rem; color:var(--green);
+    }
+
+    /* Tab bar */
+    .tabbar {
+      height:42px; flex-shrink:0;
+      border-bottom:1px solid var(--border);
+      padding:0 20px;
+      display:flex; align-items:flex-end; gap:0;
+      background:var(--s1);
+    }
+    .tab {
+      padding:0 16px; height:40px; display:flex; align-items:center;
+      font-size:0.8rem; font-weight:600; color:var(--muted);
+      cursor:pointer; border-bottom:2px solid transparent;
+      transition:all .2s; gap:6px;
+    }
+    .tab:hover { color:var(--text2); }
+    .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+    /* Main scrollable content */
+    .content {
+      flex:1; overflow-y:auto; padding:20px;
+      display:flex; flex-direction:column; gap:20px;
+    }
+
+    /* Search bar */
+    .search-bar {
+      display:flex; gap:10px; align-items:center;
+    }
+    .search-input-wrap {
+      flex:1; display:flex; align-items:center; gap:10px;
+      background:var(--s1); border:1px solid var(--border2);
+      border-radius:10px; padding:11px 16px;
+      transition:border-color .2s;
+    }
+    .search-input-wrap:focus-within { border-color:var(--accent); }
+    .search-input-wrap input {
+      flex:1; background:none; border:none; outline:none;
+      font-family:inherit; font-size:0.88rem; color:var(--text);
+    }
+    .search-input-wrap input::placeholder { color:var(--muted); }
+    .search-run {
+      padding:11px 20px; background:var(--accent); color:#0f0f1a;
+      border:none; border-radius:9px; font-size:0.85rem; font-weight:700;
+      cursor:pointer; white-space:nowrap; transition:all .2s;
+    }
+    .search-run:hover { background:#c4b5fd; }
+
+    /* Section headings */
+    .sec-head {
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:12px;
+    }
+    .sec-head h2 { font-size:0.82rem; font-weight:700; color:var(--text2); letter-spacing:0.04em; text-transform:uppercase; }
+    .sec-head a  { font-size:0.75rem; color:var(--accent); text-decoration:none; cursor:pointer; }
+
+    /* Platform grid */
+    .platform-grid {
+      display:grid; grid-template-columns:repeat(auto-fill, minmax(190px,1fr));
+      gap:12px;
+    }
+    .platform-card {
+      background:var(--s1); border:1px solid var(--border);
+      border-radius:12px; padding:16px;
+      cursor:pointer; transition:all .2s;
+    }
+    .platform-card:hover {
+      border-color:rgba(167,139,250,0.4);
+      transform:translateY(-2px);
+      box-shadow:0 8px 24px rgba(0,0,0,0.3);
+    }
+    .plat-top { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+    .plat-icon {
+      width:34px; height:34px; border-radius:8px;
+      background:var(--s2); display:flex; align-items:center;
+      justify-content:center; font-size:1rem; flex-shrink:0;
+    }
+    .plat-name { font-size:0.85rem; font-weight:700; }
+    .plat-tag {
+      font-size:0.68rem; padding:2px 8px;
+      background:var(--s2); border-radius:100px; color:var(--muted);
+    }
+    .plat-desc { font-size:0.75rem; color:var(--text2); line-height:1.5; }
+
+    /* Kanban mini */
+    .kanban {
+      display:grid; grid-template-columns:repeat(4,1fr); gap:10px;
+    }
+    .kanban-col { background:var(--s1); border:1px solid var(--border); border-radius:10px; padding:12px; }
+    .kanban-head { font-size:0.73rem; font-weight:700; color:var(--muted); margin-bottom:10px; text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; justify-content:space-between; }
+    .kanban-count { background:var(--s2); border-radius:100px; padding:1px 7px; font-size:0.7rem; color:var(--text2); }
+    .kanban-card { background:var(--s2); border:1px solid var(--border2); border-radius:8px; padding:10px; margin-bottom:8px; font-size:0.77rem; }
+    .kanban-card .company { color:var(--muted); font-size:0.7rem; margin-top:3px; }
+    .kanban-empty { font-size:0.75rem; color:var(--muted); text-align:center; padding:16px 0; }
+
+    /* ── CHAT SIDEBAR ──────────────────────────────────── */
+    .chat-sidebar {
+      width:360px; flex-shrink:0;
+      border-left:1px solid var(--border);
+      display:flex; flex-direction:column;
+      background:var(--s1);
+    }
+    .chat-header {
+      height:52px; flex-shrink:0;
+      border-bottom:1px solid var(--border);
+      padding:0 16px;
+      display:flex; align-items:center; gap:10px;
+    }
+    .chat-avatar {
+      width:30px; height:30px; border-radius:50%;
+      background:rgba(167,139,250,0.2);
+      border:1px solid rgba(167,139,250,0.4);
+      display:flex; align-items:center; justify-content:center;
+      font-size:0.85rem;
+    }
+    .chat-header-info h3 { font-size:0.83rem; font-weight:700; }
+    .chat-header-info span { font-size:0.7rem; color:var(--green); }
+
+    /* Messages */
+    .chat-messages {
+      flex:1; overflow-y:auto; padding:14px;
+      display:flex; flex-direction:column; gap:10px;
+    }
+    .msg {
+      max-width:90%; padding:10px 13px;
+      border-radius:12px; font-size:0.8rem; line-height:1.55;
+    }
+    .msg-ai {
+      background:var(--s2); border:1px solid var(--border);
+      border-radius:4px 12px 12px 12px; align-self:flex-start;
+      color:var(--text);
+    }
+    .msg-user {
+      background:rgba(167,139,250,0.2); border:1px solid rgba(167,139,250,0.3);
+      border-radius:12px 4px 12px 12px; align-self:flex-end;
+      color:var(--text);
+    }
+    .msg-ai b { color:var(--accent); }
+    .typing {
+      display:inline-flex; gap:4px; padding:10px 14px;
+      background:var(--s2); border:1px solid var(--border);
+      border-radius:4px 12px 12px 12px; align-self:flex-start;
+    }
+    .typing span {
+      width:5px; height:5px; border-radius:50%; background:var(--muted);
+      animation:bounce .8s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay:.15s; }
+    .typing span:nth-child(3) { animation-delay:.3s; }
+    @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
+
+    /* Quick chips */
+    .chat-chips {
+      padding:0 14px 10px;
+      display:flex; flex-wrap:wrap; gap:6px;
+    }
+    .q-chip {
+      padding:5px 11px; background:var(--s2); border:1px solid var(--border);
+      border-radius:100px; font-size:0.72rem; color:var(--text2);
+      cursor:pointer; transition:all .15s;
+    }
+    .q-chip:hover { border-color:var(--accent); color:var(--accent); }
+
+    /* Upload zone */
+    .upload-zone {
+      margin:0 14px 10px;
+      border:1px dashed var(--border2);
+      border-radius:10px; padding:12px;
+      text-align:center; cursor:pointer; transition:all .2s;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color:var(--accent);
+      background:rgba(167,139,250,0.05);
+    }
+    .upload-zone .uz-icon { font-size:1.1rem; margin-bottom:4px; }
+    .upload-zone .uz-text { font-size:0.73rem; color:var(--muted); }
+    .upload-zone .uz-text b { color:var(--accent); }
+    .upload-zone input { display:none; }
+
+    /* Chat input */
+    .chat-input-wrap {
+      padding:12px 14px;
+      border-top:1px solid var(--border);
+      display:flex; gap:8px; align-items:flex-end;
+    }
+    .chat-input {
+      flex:1; background:var(--s2); border:1px solid var(--border);
+      border-radius:10px; padding:9px 12px;
+      font-family:inherit; font-size:0.8rem; color:var(--text);
+      outline:none; resize:none; min-height:38px; max-height:100px;
+      transition:border-color .2s;
+    }
+    .chat-input:focus { border-color:var(--accent); }
+    .chat-input::placeholder { color:var(--muted); }
+    .chat-send {
+      width:36px; height:36px; border-radius:9px;
+      background:var(--accent); border:none;
+      color:#0f0f1a; font-size:0.9rem; cursor:pointer;
+      flex-shrink:0; display:flex; align-items:center; justify-content:center;
+      transition:all .2s;
+    }
+    .chat-send:hover { background:#c4b5fd; }
+
+    @media(max-width:900px) {
+      .chat-sidebar { display:none; }
+    }
+    @media(max-width:640px) {
+      .kanban { grid-template-columns:repeat(2,1fr); }
+      .platform-grid { grid-template-columns:1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ICON NAV -->
+<nav class="nav-sidebar">
+  <div class="nav-logo" title="JobQueen">👑</div>
+  <div class="nav-icon active" data-tip="Suche" onclick="setTab('suche')">🔍</div>
+  <div class="nav-icon" data-tip="Gespeichert" onclick="setTab('saved')">🔖</div>
+  <div class="nav-icon" data-tip="Bewerbungen" onclick="setTab('board')">📋</div>
+  <div class="nav-sep"></div>
+  <div class="nav-icon" data-tip="Export Excel" onclick="doExport()">📤</div>
+  <div class="nav-icon" data-tip="Profil" onclick="setTab('profil')">👤</div>
+  <div style="flex:1"></div>
+  <a href="/landing" class="nav-icon" data-tip="Startseite" style="text-decoration:none">🏠</a>
+</nav>
+
+<!-- MAIN -->
+<main class="main">
+
+  <div class="topbar">
+    <span class="topbar-title">👑 <span>JobQueen</span> Workspace</span>
+    <div class="spacer"></div>
+    <span class="topbar-badge">● Online</span>
+  </div>
+
+  <div class="tabbar">
+    <div class="tab active" onclick="switchTab(this,'suche')">🔍 Jobsuche</div>
+    <div class="tab" onclick="switchTab(this,'board')">📋 Bewerbungen</div>
+    <div class="tab" onclick="switchTab(this,'profil')">👤 Profil</div>
+  </div>
+
+  <!-- TAB: SUCHE -->
+  <div class="content" id="tab-suche">
+
+    <!-- Search -->
+    <div class="search-bar">
+      <div class="search-input-wrap">
+        <span style="color:var(--muted);font-size:0.9rem">🔍</span>
+        <input id="main-search" type="text"
+          placeholder="z.B. Immobilienkaufmann Hannover hybrid 45k …">
+      </div>
+      <button class="search-run" onclick="doSearch()">Suchen</button>
+    </div>
+
+    <!-- Platforms -->
+    <div>
+      <div class="sec-head">
+        <h2>Jobbörsen</h2>
+        <a onclick="addTip('Alle 20 Portale werden gleichzeitig abgefragt')">Alle anzeigen</a>
+      </div>
+      <div class="platform-grid">
+        <div class="platform-card" onclick="openPlatform('indeed')">
+          <div class="plat-top">
+            <div class="plat-icon">🌐</div>
+            <div>
+              <div class="plat-name">Indeed</div>
+              <span class="plat-tag">Generalist</span>
+            </div>
+          </div>
+          <div class="plat-desc">Weltweit größte Jobsuchmaschine. Bündelt Angebote aus allen Quellen.</div>
+        </div>
+        <div class="platform-card" onclick="openPlatform('stepstone')">
+          <div class="plat-top">
+            <div class="plat-icon">💼</div>
+            <div>
+              <div class="plat-name">StepStone</div>
+              <span class="plat-tag">Premium</span>
+            </div>
+          </div>
+          <div class="plat-desc">Führende Jobbörse für Fach- und Führungskräfte im DACH-Raum.</div>
+        </div>
+        <div class="platform-card" onclick="openPlatform('linkedin')">
+          <div class="plat-top">
+            <div class="plat-icon">🔗</div>
+            <div>
+              <div class="plat-name">LinkedIn</div>
+              <span class="plat-tag">Netzwerk</span>
+            </div>
+          </div>
+          <div class="plat-desc">Größtes Business-Netzwerk. Perfekt für Networking und Headhunting.</div>
+        </div>
+        <div class="platform-card" onclick="openPlatform('xing')">
+          <div class="plat-top">
+            <div class="plat-icon">❎</div>
+            <div>
+              <div class="plat-name">XING</div>
+              <span class="plat-tag">DACH</span>
+            </div>
+          </div>
+          <div class="plat-desc">Führendes Karrierenetzwerk im deutschsprachigen Raum.</div>
+        </div>
+        <div class="platform-card" onclick="openPlatform('arbeitsagentur')">
+          <div class="plat-top">
+            <div class="plat-icon">🏛️</div>
+            <div>
+              <div class="plat-name">Arbeitsagentur</div>
+              <span class="plat-tag">Offiziell</span>
+            </div>
+          </div>
+          <div class="plat-desc">Offizielle Jobbörse der Bundesagentur für Arbeit.</div>
+        </div>
+        <div class="platform-card" onclick="openPlatform('jobvector')">
+          <div class="plat-top">
+            <div class="plat-icon">🔬</div>
+            <div>
+              <div class="plat-name">Jobvector</div>
+              <span class="plat-tag">Nische</span>
+            </div>
+          </div>
+          <div class="plat-desc">Top-Adresse für Naturwissenschaftler, Mediziner und Ingenieure.</div>
+        </div>
+        <div class="platform-card" onclick="openPlatform('absolventa')">
+          <div class="plat-top">
+            <div class="plat-icon">🎓</div>
+            <div>
+              <div class="plat-name">Absolventa</div>
+              <span class="plat-tag">Einsteiger</span>
+            </div>
+          </div>
+          <div class="plat-desc">Spezialisiert auf Absolventen, Young Professionals und Trainees.</div>
+        </div>
+        <div class="platform-card" onclick="openPlatform('yourfirm')">
+          <div class="plat-top">
+            <div class="plat-icon">🏭</div>
+            <div>
+              <div class="plat-name">Yourfirm</div>
+              <span class="plat-tag">Mittelstand</span>
+            </div>
+          </div>
+          <div class="plat-desc">Führende Jobbörse für Stellen im deutschen Mittelstand.</div>
+        </div>
+        <div class="platform-card" onclick="openPlatform('greenjobs')">
+          <div class="plat-top">
+            <div class="plat-icon">🌿</div>
+            <div>
+              <div class="plat-name">Green Jobs</div>
+              <span class="plat-tag">Nische</span>
+            </div>
+          </div>
+          <div class="plat-desc">Spezialist für Umweltberufe, Nachhaltigkeit und Green Tech.</div>
+        </div>
+        <div class="platform-card" onclick="openPlatform('monster')">
+          <div class="plat-top">
+            <div class="plat-icon">👾</div>
+            <div>
+              <div class="plat-name">Monster</div>
+              <span class="plat-tag">Klassiker</span>
+            </div>
+          </div>
+          <div class="plat-desc">Eines der bekanntesten traditionellen Jobportale weltweit.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tab-suche -->
+
+  <!-- TAB: BOARD -->
+  <div class="content" id="tab-board" style="display:none">
+    <div class="sec-head"><h2>Bewerbungs-Tracker</h2><a onclick="addTip('Neue Bewerbung hinzufügen')">+ Hinzufügen</a></div>
+    <div class="kanban">
+      <div class="kanban-col">
+        <div class="kanban-head">Offen <span class="kanban-count">2</span></div>
+        <div class="kanban-card">Immobilienkaufmann<div class="company">Vonovia · Hannover</div></div>
+        <div class="kanban-card">Property Manager<div class="company">Patrizia AG · Hamburg</div></div>
+      </div>
+      <div class="kanban-col">
+        <div class="kanban-head">Gesendet <span class="kanban-count">1</span></div>
+        <div class="kanban-card">Sachbearbeiter Vermietung<div class="company">LEG Immobilien · Düsseldorf</div></div>
+      </div>
+      <div class="kanban-col">
+        <div class="kanban-head">Interview <span class="kanban-count">1</span></div>
+        <div class="kanban-card">Wohnungsverwalter<div class="company">Gewobag · Berlin</div></div>
+      </div>
+      <div class="kanban-col">
+        <div class="kanban-head">Abgeschlossen <span class="kanban-count">0</span></div>
+        <div class="kanban-empty">Noch keine</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: PROFIL -->
+  <div class="content" id="tab-profil" style="display:none">
+    <div class="sec-head"><h2>Mein Profil</h2></div>
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:20px;font-size:0.83rem;color:var(--text2);line-height:2">
+      Lade deinen Lebenslauf im Chat-Bereich rechts hoch – die KI erstellt automatisch dein Profil mit Skills, Berufserfahrung und passenden Jobtiteln.
+    </div>
+  </div>
+
+</main>
+
+<!-- CHAT SIDEBAR -->
+<aside class="chat-sidebar">
+
+  <div class="chat-header">
+    <div class="chat-avatar">👑</div>
+    <div class="chat-header-info">
+      <h3>Queen Assistent</h3>
+      <span>● bereit</span>
+    </div>
+  </div>
+
+  <div class="chat-messages" id="chat-messages"></div>
+
+  <!-- Quick chips -->
+  <div class="chat-chips" id="chat-chips">
+    <span class="q-chip" onclick="chipSend('Jobs in Hannover suchen')">🔍 Hannover suchen</span>
+    <span class="q-chip" onclick="chipSend('Excel Export starten')">📤 Excel Export</span>
+    <span class="q-chip" onclick="chipSend('Anschreiben erstellen')">✍️ Anschreiben</span>
+    <span class="q-chip" onclick="chipSend('CV analysieren')">📄 CV Analyse</span>
+  </div>
+
+  <!-- Drag & Drop CV upload -->
+  <div class="upload-zone" id="upload-zone"
+       ondrop="handleDrop(event)" ondragover="handleDragOver(event)"
+       ondragleave="handleDragLeave(event)" onclick="document.getElementById('cv-file').click()">
+    <div class="uz-icon">📄</div>
+    <div class="uz-text"><b>Lebenslauf hochladen</b><br>PDF oder Word · drag&nbsp;&amp;&nbsp;drop</div>
+    <input type="file" id="cv-file" accept=".pdf,.doc,.docx" onchange="handleFileSelect(event)">
+  </div>
+
+  <div class="chat-input-wrap">
+    <textarea class="chat-input" id="chat-input"
+      placeholder="Was suchst du? z.B. Immobilienkaufmann Hannover …"
+      rows="1"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"
+      oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+    <button class="chat-send" onclick="sendMsg()">↑</button>
+  </div>
+
+</aside>
+
+<script>
+// ─── Tab switching ───────────────────────────────────────────────
+function switchTab(el, id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['suche','board','profil'].forEach(t => {
+    const el = document.getElementById('tab-' + t);
+    if (el) el.style.display = t === id ? 'flex' : 'none';
+  });
+}
+
+function setTab(id) {
+  const tabs = { suche:0, board:1, profil:2 };
+  const allTabs = document.querySelectorAll('.tab');
+  allTabs.forEach(t => t.classList.remove('active'));
+  if (tabs[id] !== undefined) allTabs[tabs[id]].classList.add('active');
+  ['suche','board','profil'].forEach(t => {
+    const el = document.getElementById('tab-' + t);
+    if (el) el.style.display = t === id ? 'flex' : 'none';
+  });
+}
+
+// ─── Chat logic ──────────────────────────────────────────────────
+const msgs = document.getElementById('chat-messages');
+const inp  = document.getElementById('chat-input');
+
+function addMsg(text, isUser = false) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + (isUser ? 'msg-user' : 'msg-ai');
+  div.innerHTML = text;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function showTyping() {
+  const t = document.createElement('div');
+  t.className = 'typing'; t.id = 'typing';
+  t.innerHTML = '<span></span><span></span><span></span>';
+  msgs.appendChild(t);
+  msgs.scrollTop = msgs.scrollHeight;
+  return t;
+}
+
+function removeTyping() {
+  const t = document.getElementById('typing');
+  if (t) t.remove();
+}
+
+// Smart keyword-based responses
+function getReply(msg) {
+  const m = msg.toLowerCase();
+
+  // Job search
+  const searchMatch = m.match(/(?:suche?|such|find|zeig|stell(?:en)?)\s+(?:für\s+)?(.+?)(?:\s+in\s+(\w+))?(?:\s+\d+k)?$/i) ||
+                       m.match(/(.+?)\s+(?:in\s+)?(\w+)\s+(?:suchen?|finden?|jobs?)/i);
+  const cityMatch = m.match(/\b(hannover|berlin|münchen|hamburg|frankfurt|köln|stuttgart|düsseldorf|dortmund|remote)\b/i);
+  const jobMatch  = m.match(/\b(immobilienkaufmann|entwickler?|manager|designer|verkäufer|pflege|arzt|ingenieur|buchhalter|it|python|java|ux)\b/i);
+
+  if (m.includes('excel') || m.includes('export') || m.includes('download')) {
+    return `📊 <b>Excel-Export</b> wird vorbereitet...<br><br>✅ 50 Stellenangebote gefunden &amp; formatiert:<br>• Jobtitel · Firma · Ort · Gehalt<br>• Quelle · Datum · Anforderungen · URL<br><br>💾 <b>jobqueen_export.xlsx</b> wird gleich heruntergeladen. Welche Suchanfrage soll exportiert werden?`;
+  }
+
+  if (m.includes('anschreiben') || m.includes('cover')) {
+    return `✍️ <b>Anschreiben erstellen</b><br><br>Ich brauche kurz:<br>1. Welche Stelle? (Titel + Firma)<br>2. Dein Hintergrund (Beruf, Erfahrung)<br>3. Besondere Stärken<br><br>Oder lade deinen <b>Lebenslauf</b> hoch – ich extrahiere alles automatisch. 👇`;
+  }
+
+  if (m.includes('cv') || m.includes('lebenslauf') || m.includes('unterlag') || m.includes('analyse') || m.includes('upload')) {
+    return `📄 <b>CV-Analyse</b><br><br>Ziehe deinen Lebenslauf in das Upload-Feld unten oder klicke darauf.<br><br>Ich analysiere dann:<br>• Skills &amp; Technologien<br>• Berufserfahrung &amp; Ausbildung<br>• Passende Berufsbezeichnungen<br>• Matching-Score zu aktuellen Stellen`;
+  }
+
+  if (m.includes('interview') || m.includes('vorstellungsgespräch') || m.includes('vorbereitung')) {
+    const job = jobMatch ? jobMatch[0] : 'deine Zielstelle';
+    return `🎯 <b>Interview-Vorbereitung</b> für ${job}<br><br>Typische Fragen:<br>• „Erzählen Sie von sich" → 2-Min-Pitch vorbereiten<br>• „Warum unser Unternehmen?" → Recherche nötig<br>• „Stärken &amp; Schwächen?" → Konkrete Beispiele<br><br>Soll ich für eine spezifische Stelle Fragen generieren?`;
+  }
+
+  if (m.includes('hannover') || m.includes('berlin') || m.includes('münchen') || m.includes('hamburg') || m.includes('remote') || cityMatch) {
+    const city = cityMatch ? cityMatch[0] : 'deiner Region';
+    const job2 = jobMatch ? jobMatch[0] : 'passende Stellen';
+    const count = Math.floor(Math.random()*20)+28;
+    return `🔍 Suche läuft auf <b>Indeed · StepStone · LinkedIn · Arbeitsagentur · Jobware</b>...<br><br>✅ <b>${count} aktuelle Stellen</b> für <i>${job2}</i> in ${city} gefunden<br>📍 Davon ${Math.floor(count*0.4)} remote-fähig<br>💰 Gehaltsspanne: 38.000–62.000 €<br><br>Soll ich die Ergebnisse als <b>Excel exportieren</b> oder die <b>Top 5</b> direkt anzeigen?`;
+  }
+
+  if (jobMatch || searchMatch || m.includes('job') || m.includes('stelle') || m.includes('arbeit')) {
+    const job3 = jobMatch ? jobMatch[0] : 'die Stelle';
+    return `🔍 Ich suche jetzt auf <b>20+ Jobbörsen</b> nach <i>${job3}</i>...<br><br>✅ <b>43 aktuelle Angebote</b> gefunden<br>📍 Deutschland + Remote<br>💰 Ø Gehalt: ~45.000 €<br><br>In welcher <b>Stadt</b> suchst du? Dann filtere ich genauer.`;
+  }
+
+  if (m.includes('platform') || m.includes('portal') || m.includes('jobbörse') || m.includes('welche')) {
+    return `📋 <b>Empfohlene Portale</b> für deine Suche:<br><br>🥇 <b>Indeed</b> – größte Auswahl<br>🥈 <b>StepStone</b> – beste Qualität<br>🥉 <b>LinkedIn</b> – Netzwerk &amp; Headhunter<br><br>Für Spezialgebiete: Jobvector (MINT), Absolventa (Einsteiger), Green Jobs (Nachhaltigkeit)<br><br>Alle werden gleichzeitig abgefragt – du brauchst nur <b>eine Suche</b>.`;
+  }
+
+  if (m.includes('hallo') || m.includes('hi') || m.includes('hey') || m.includes('guten')) {
+    return `👋 Hallo! Ich bin <b>Queen</b>, dein KI-Karriereassistent.<br><br>Ich kann:<br>• 20+ Jobbörsen gleichzeitig durchsuchen<br>• Excel-Listen mit Stellen exportieren<br>• Deinen Lebenslauf analysieren<br>• Anschreiben schreiben<br>• Interview-Vorbereitung<br><br>Wo suchst du gerade? 🔍`;
+  }
+
+  if (m.includes('danke') || m.includes('super') || m.includes('toll') || m.includes('gut')) {
+    return `Gern! 👑 Was möchtest du als nächstes angehen?<br>• Weitere Stellen suchen<br>• Excel-Export starten<br>• Anschreiben schreiben`;
+  }
+
+  // Default
+  return `Gute Frage! Ich helfe dir bei:<br><br>🔍 <b>Jobsuche</b> – „Finde Stellen für [Beruf] in [Stadt]"<br>📤 <b>Export</b> – „50 Stellen als Excel exportieren"<br>📄 <b>CV-Analyse</b> – Lebenslauf hochladen &amp; analysieren<br>✍️ <b>Anschreiben</b> – „Anschreiben für [Stelle] erstellen"<br>🎯 <b>Interview</b> – Vorbereitung auf Vorstellungsgespräche<br><br>Was soll ich tun? 👇`;
+}
+
+function sendMsg() {
+  const text = inp.value.trim();
+  if (!text) return;
+  addMsg(text, true);
+  inp.value = ''; inp.style.height = 'auto';
+
+  const t = showTyping();
+  setTimeout(() => {
+    removeTyping();
+    addMsg(getReply(text));
+  }, 600 + Math.random()*600);
+}
+
+function chipSend(text) { inp.value = text; sendMsg(); }
+function addTip(msg) { addMsg('💡 ' + msg); }
+
+// Main search → sends to chat
+function doSearch() {
+  const q = document.getElementById('main-search').value.trim();
+  if (!q) return;
+  inp.value = q; sendMsg();
+  document.getElementById('main-search').value = '';
+}
+document.getElementById('main-search').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+// Export action
+function doExport() { inp.value = 'Excel Export starten'; sendMsg(); }
+
+// Platform click
+function openPlatform(name) {
+  inp.value = `Welche Stellen gibt es auf ${name}?`; sendMsg();
+}
+
+// ─── Drag & Drop CV ──────────────────────────────────────────────
+const zone = document.getElementById('upload-zone');
+
+function handleDragOver(e) { e.preventDefault(); zone.classList.add('drag-over'); }
+function handleDragLeave() { zone.classList.remove('drag-over'); }
+
+function handleDrop(e) {
+  e.preventDefault(); zone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) analyzeCV(file);
+}
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) analyzeCV(file);
+}
+
+function analyzeCV(file) {
+  addMsg(`📄 <b>${file.name}</b> hochgeladen. Analysiere deine Unterlagen…`, true);
+  const t = showTyping();
+  setTimeout(() => {
+    removeTyping();
+    addMsg(`✅ <b>CV-Analyse abgeschlossen</b><br><br>📋 <b>Erkannte Informationen:</b><br>• Beruf: <b>Immobilienkaufmann/-frau</b><br>• Erfahrung: ca. 4 Jahre<br>• Skills: Mietrecht · SAP · Objektverwaltung · Kundenkommunikation<br>• Sprachen: Deutsch (C2) · Englisch (B2)<br><br>🎯 <b>Passende Jobtitel:</b><br>Immobilienkaufmann · Property Manager · Objektbetreuer · Hausverwaltung<br><br>📊 Matching mit aktuellen Stellen wird berechnet…`);
+    setTimeout(() => {
+      addMsg(`🏆 <b>Top-Matches für dein Profil:</b><br><br>1. Property Manager · Vonovia · 94% Match<br>2. Sachbearbeiter Wohnungsverwaltung · LEG · 91% Match<br>3. Immobilienkaufmann · TAG Immobilien · 88% Match<br><br>Soll ich für einen dieser Jobs ein <b>Anschreiben erstellen</b>?`);
+    }, 1200);
+  }, 1400);
+}
+
+// ─── Init greeting ────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    addMsg(`Willkommen zurück, Königin 👑<br><br>Was suchst du heute? Ich durchsuche <b>20+ Jobbörsen</b> auf einmal und helfe dir mit Anschreiben, CV-Analyse und Excel-Export.`);
+  }, 300);
+});
+</script>
+</body>
+</html>
