@@ -1471,16 +1471,35 @@ async def jobqueen_jobs(request: Request):
         ADZUNA_API_KEY = os.getenv("ADZUNA_API_KEY")
         ADZUNA_BASE = os.getenv("ADZUNA_BASE_URL", "https://api.adzuna.com/v1")
         if not ADZUNA_APP_ID or not ADZUNA_API_KEY:
-            # Fallback: LLM-only (so Frontend nicht komplett bricht)
-            from bot_ai import generate_response
-            msg = (
-                f"Gib mir 8 passende Stellenangebote als JSON mit Feldern: id,title,company,location,url,description_snippet. "
-                f"Nutzeranfrage: {query}.\n"
-                "Antwort strikt als JSON (nur JSON, kein Text)."
+            # Fallback: LLM-Jobgenerierung ohne Sandy-Persona, mit JSON-only System-Prompt
+            from bot_ai import generate_structured_json
+            import re as _re_jobs
+            system_prompt = (
+                "Du bist ein JSON-Generator fuer Stellenanzeigen. "
+                "Antworte AUSSCHLIESSLICH mit gueltigem JSON, kein Fliesstext, keine Markdown-Codeblocks. "
+                "Nutze immer dieses Schema: "
+                "{"jobs": [{"id": "string", "title": "string", "company": "string", "
+                ""location": "string", "url": "string", "description_snippet": "string"}]}"
             )
-
-            reply = await generate_response(chat_id=chat_id, message=msg)
-            return JSONResponse({"jobs": json.loads(reply).get("jobs", []) if reply else []})
+            user_msg = (
+                f"Erstelle 8 realistische Stellenangebote fuer: "{query}" in Deutschland/DACH. "
+                "Nutze echte Firmennamen, realistische Orte, glaubwuerdige Beschreibungen und "
+                "plausible (aber fiktive) URLs im Format https://jobs.example.de/stelle-123. "
+                "Antwort: nur JSON, kein Text darum herum."
+            )
+            reply = await generate_structured_json(system_prompt, user_msg)
+            jobs_fallback = []
+            if reply:
+                cleaned = _re_jobs.sub(r'```(?:json)?\s*|\s*```', '', reply).strip()
+                start = cleaned.find('{')
+                end = cleaned.rfind('}')
+                if start != -1 and end != -1:
+                    try:
+                        parsed = json.loads(cleaned[start:end + 1])
+                        jobs_fallback = parsed.get("jobs", [])
+                    except Exception as _je:
+                        logger.warning("jobqueen_jobs LLM-Fallback JSON-Parse Fehler: %s", _je)
+            return JSONResponse({"jobs": jobs_fallback})
 
         # region: default UK if nothing else; user can override via request
         country = (data.get("country") or os.getenv("ADZUNA_COUNTRY") or "de").lower()
@@ -1527,11 +1546,24 @@ async def jobqueen_jobs(request: Request):
             url = j.get("redirect_url") or j.get("url") or ""
             jid = str(job_id or "")
 
+            # Adzuna: company und location kommen als dict {display_name: ...}
+            _company_raw = j.get("company")
+            company_str = (
+                _company_raw.get("display_name") or ""
+                if isinstance(_company_raw, dict)
+                else (str(_company_raw) if _company_raw else "")
+            )
+            _location_raw = j.get("location")
+            location_str = (
+                _location_raw.get("display_name") or ""
+                if isinstance(_location_raw, dict)
+                else (str(_location_raw) if _location_raw else "")
+            )
             job_obj = {
                 "id": jid,
                 "title": j.get("title") or "",
-                "company": (j.get("company") or {}).get("display_name") if isinstance(j.get("company"), dict) else j.get("company"),
-                "location": j.get("location") or (j.get("location", {}).get("display_name") if isinstance(j.get("location"), dict) else ""),
+                "company": company_str,
+                "location": location_str,
                 "url": url,
                 "description_snippet": (j.get("description") or "")[:300],
             }
@@ -1615,14 +1647,17 @@ async def jobqueen_excel(request: Request):
 
 
         from dv import create_excel_from_data
+        from starlette.responses import Response as _RawResponse
         buffer = create_excel_from_data(rows, columns, title="JobQueen_Export.xlsx")
 
-        # return as xlsx
+        # BytesIO muss als bytes übergeben werden – StreamingResponse würde das
+        # Binary auf \n-Bytes aufteilen und das XLSX korrumpieren.
         filename = "JobQueen_Export.xlsx"
-        headers = {
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        }
-        return StreamingResponse(buffer, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+        return _RawResponse(
+            content=buffer.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     except Exception as e:
         logger.error(f"jobqueen_excel Fehler: {e}", exc_info=True)
         return JSONResponse({"error": str(e)[:500]}, status_code=500)
@@ -1641,26 +1676,39 @@ async def jobqueen_coverletters(request: Request):
         if not query:
             return JSONResponse({"error": "query fehlt"}, status_code=400)
 
-        from bot_ai import generate_response
-        # For each job produce html body (table formatting allowed)
+        from bot_ai import generate_structured_json
+        import re as _re_cl
         payload_hint = json.dumps({"profile": profile, "jobs": jobs[:8]}, ensure_ascii=False)
-        msg = (
+        _cl_system = (
+            "Du bist ein professioneller Bewerbungsanschreiben-Generator. "
+            "Antworte AUSSCHLIESSLICH mit gueltigem JSON, kein Fliesstext, keine Markdown-Codeblocks."
+        )
+        _cl_user = (
             "Erstelle Anschreiben als professionelles Bewerbungsanschreiben auf Deutsch. "
-            "Gib exakt folgendes JSON-Schema zurück (nur JSON, kein Fließtext):\n"
+            "Gib exakt folgendes JSON-Schema zurueck (nur JSON, kein Fliesstext):\n"
             "{\n"
             '  "cover_letters": [\n'
             '    {"job_id":"...","subject":"...","body_html":"<p>...</p>..."}\n'
             "  ]\n"
             "}\n\n"
             "Regeln:\n"
-            "- body_html darf HTML enthalten, inkl. <table> für Abschnitte.\n"
-            "- Nutze Werte aus 'jobs' für Stellenbezug (Titel/Firma/Ort/Snippet).\n"
-            "- Nutze Werte aus profile für Skills/Erfahrung (wenn vorhanden).\n"
+            "- body_html darf HTML enthalten, inkl. <table> fuer Abschnitte.\n"
+            "- Nutze Werte aus 'jobs' fuer Stellenbezug (Titel/Firma/Ort/Snippet).\n"
+            "- Nutze Werte aus profile fuer Skills/Erfahrung (wenn vorhanden).\n"
             f"Nutzeranfrage: {query}\nJSON-Kontext: {payload_hint}"
         )
 
-        reply = await generate_response(chat_id=chat_id, message=msg)
-        parsed = json.loads(reply) if reply else {}
+        reply = await generate_structured_json(_cl_system, _cl_user)
+        parsed = {}
+        if reply:
+            cleaned_cl = _re_cl.sub(r'```(?:json)?\s*|\s*```', '', reply).strip()
+            s = cleaned_cl.find('{')
+            e = cleaned_cl.rfind('}')
+            if s != -1 and e != -1:
+                try:
+                    parsed = json.loads(cleaned_cl[s:e + 1])
+                except Exception:
+                    parsed = {}
         return JSONResponse(parsed)
     except Exception as e:
         logger.error(f"jobqueen_coverletters Fehler: {e}", exc_info=True)
@@ -1709,12 +1757,18 @@ async def jobqueen_cv_analyze(request: Request):
             from dv import extract_content
             extracted_text = extract_content(tmp_path, max_chars=30000)
 
-            from bot_ai import generate_response
-            # Strukturierte Analyse inklusive korrekter Berufserfahrung (Monate/Jahre) und Stärken detailliert
-            msg = (
-                "Analysiere folgenden Lebenslauf (deutsch oder gemischt) und gib ein STRIKT strukturiertes JSON zurück. "
-                "Kein Fließtext außerhalb des JSON.\n\n"
-
+            from bot_ai import generate_structured_json
+            import re as _re_cv
+            # System-Prompt als CV-Analysator (kein Sandy-Kontext, keine Chat-History)
+            _cv_system = (
+                "Du bist ein praeziser CV-Analysator. "
+                "Analysiere Lebenslaeufe und gib AUSSCHLIESSLICH gueltiges JSON zurueck. "
+                "Kein Fliesstext, keine Erklaerungen, keine Markdown-Codeblocks (kein ```json). "
+                "Starte deine Antwort direkt mit { und beende sie mit }."
+            )
+            _cv_user = (
+                "Analysiere folgenden Lebenslauf (deutsch oder gemischt) und gib ein STRIKT strukturiertes JSON zurueck. "
+                "Kein Fliesstext ausserhalb des JSON.\n\n"
                 "JSON-Schema:\n"
                 "{\n"
                 '  "name": string|null,\n'
@@ -1722,37 +1776,32 @@ async def jobqueen_cv_analyze(request: Request):
                 '  "languages": string[],\n'
                 '  "experience_years": number,\n'
                 '  "experience_months": number,\n'
-                '  "experience_details": {"total_months": number, "roles": [{"title": string, "company": string, "start": string|null, "end": string|null, "months": number}]} ,\n'
+                '  "experience_details": {"total_months": number, "roles": [{"title": string, "company": string, "start": string|null, "end": string|null, "months": number}]},\n'
                 '  "strengths": [{"strength": string, "evidence": string, "relevance": string}],\n'
                 '  "suggested_job_titles": [{"title": string, "reason": string}],\n'
                 '  "missing_info_questions": string[]\n'
                 "}\n\n"
                 "Regeln:\n"
-                "- Berechne Berufserfahrung korrekt: berücksichtige mehrere Rollen, nutze Start/End-Daten wenn vorhanden; falls nur Jahre: exakt auf Monate aufteilen (heuristisch, aber konsistent).\n"
-                "- strengths: mindestens 8 Einträge, je mit Beleg (konkret aus dem Lebenslauf) und Relevanz (warum für passende Jobs).\n"
+                "- Berechne Berufserfahrung korrekt: mehrere Rollen beruecksichtigen, Start/End-Daten nutzen.\n"
+                "- strengths: mindestens 8 Eintraege, je mit konkretem Beleg aus dem Lebenslauf und Relevanz.\n"
                 "- suggested_job_titles: mindestens 8 konkrete Jobtitel passend zu Skills + Erfahrung.\n"
-                "- missing_info_questions: max 6 Fragen nur wenn nötig (z.B. Datenlücken).\n\n"
+                "- missing_info_questions: max 6 Fragen nur wenn noetig.\n\n"
                 f"Lebenslauf Datei: {filename}\n\nEXTRAHIERTER TEXT:\n{extracted_text[:25000]}"
             )
 
-            reply = await generate_response(chat_id=chat_id, message=msg)
+            reply = await generate_structured_json(_cv_system, _cv_user)
 
-            # robustes JSON parsing (LLM liefert manchmal Text statt strikt JSON)
+            # Robustes JSON-Parsing: Markdown-Codeblocks entfernen, dann {…} extrahieren
             profile = {}
             if reply:
-                try:
-                    profile = json.loads(reply)
-                except json.JSONDecodeError:
-                    # versuche JSON-Ausschnitt zu extrahieren
-                    start = reply.find('{')
-                    end = reply.rfind('}')
-                    if start != -1 and end != -1 and end > start:
-                        candidate = reply[start:end + 1]
-                        try:
-                            profile = json.loads(candidate)
-                        except Exception:
-                            profile = {}
-                    else:
+                cleaned_reply = _re_cv.sub(r'```(?:json)?\s*|\s*```', '', reply).strip()
+                start = cleaned_reply.find('{')
+                end = cleaned_reply.rfind('}')
+                if start != -1 and end != -1 and end > start:
+                    try:
+                        profile = json.loads(cleaned_reply[start:end + 1])
+                    except Exception as _je:
+                        logger.warning("CV JSON-Parse Fehler: %s | Reply[:200]: %s", _je, cleaned_reply[:200])
                         profile = {}
 
 
@@ -1802,50 +1851,7 @@ async def jobqueen_chat(request: Request):
         return JSONResponse({"reply": "Entschuldigung, es gab einen technischen Fehler."}, status_code=500)
 
 
-@app.get("/landing", response_class=HTMLResponse)
-@app.get("/landing/", response_class=HTMLResponse)
-async def jobqueen_landing():
-    """JobQueen Landing Page (Marketing)"""
-    try:
-        template_path = Path(__file__).parent / "templates" / "landing.html"
-        if template_path.exists():
-            return HTMLResponse(template_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        logger.warning(f"landing.html Fehler: {e}")
-    
-    # Fallback, falls Datei fehlt
-    return HTMLResponse("""
-        <h1 style="color:#a78bfa;text-align:center;margin-top:80px;font-family:Inter,sans-serif;">
-            👑 JobQueen Landing Page<br>
-            <small style="color:#777;">Bitte lade landing.html in den templates/ Ordner hoch</small>
-        </h1>
-    """)
-
-
-@app.get("/starter", response_class=HTMLResponse)
-@app.get("/starter/", response_class=HTMLResponse)
-async def jobqueen_starter():
-    """JobQueen Workspace mit Top-Apps + Chat"""
-    try:
-        template_path = Path(__file__).parent / "templates" / "starter.html"
-        if template_path.exists():
-            return HTMLResponse(template_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        logger.warning(f"starter.html Fehler: {e}")
-    
-    # Fallback
-    return HTMLResponse("""
-        <h1 style="color:#a78bfa;text-align:center;margin-top:80px;font-family:Inter,sans-serif;">
-            👑 JobQueen Workspace<br>
-            <small style="color:#777;">Bitte lade starter.html in den templates/ Ordner hoch</small>
-        </h1>
-    """)
-
-
-# Optional: Root auf Landing umleiten
-@app.get("/", response_class=HTMLResponse)
-async def root_redirect():
-    return await jobqueen_landing()
+# (Doppelte /landing, /starter und / Routen entfernt – bereits oben definiert)
 
 
 

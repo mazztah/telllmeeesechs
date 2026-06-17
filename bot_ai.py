@@ -250,6 +250,48 @@ async def generate_response(chat_id: str, message: str) -> str:
     return fallback_reply
 
 
+async def generate_structured_json(system_prompt: str, user_message: str) -> str:
+    """Direkte LLM-Anfrage ohne Chat-History und ohne Sandy-Persona.
+    Optimal für strukturierte JSON-Ausgaben (CV-Analyse, Job-Listings, etc.).
+    Verwendet niedrige Temperature für konsistentes JSON.
+    """
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+    model_list = [
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "llama3-70b-8192",
+    ]
+
+    for index, model_name in enumerate(model_list):
+        try:
+            completion = await asyncio.to_thread(
+                client.chat.completions.create,
+                model=model_name,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=4096,
+                top_p=0.9,
+                stream=False,
+            )
+            reply = (completion.choices[0].message.content or "").strip()
+            if index > 0:
+                logger.info("✅ generate_structured_json Fallback auf %s", model_name)
+            return reply
+
+        except Exception as exc:
+            error_str = str(exc).lower()
+            logger.warning("generate_structured_json Modell %s fehlgeschlagen: %s", model_name, exc)
+            if "503" in error_str or "over capacity" in error_str or "404" in error_str or "model not found" in error_str:
+                continue
+            break
+
+    logger.error("generate_structured_json: Alle Modelle fehlgeschlagen")
+    return ""
+
+
 async def generate_response_stream(chat_id: str, message: str):
     """Yields (tag, content) tuples: ('text', chunk) or ('done', full_text)."""
     history = await build_prompt_history(chat_id)
