@@ -166,10 +166,17 @@ stream_active: dict = {}
 vision_mode_active: dict = {}
 selected_brain_deletes: dict = {}
 
-# JobQueen Workspace State (persistent during a single workspace/server session)
+# JobQueen Workspace State (persistent während der Server-Session)
+# Browser: wir kumulieren Jobs über mehrere Suchläufe, damit Excel kumuliert.
 jobqueen_state: dict = {}
 
+# JobQueen Job-Index Default-Struktur (pro chat_id)
+# - jobs_index: URL-or-ID dedupe -> Job-Objekt
+# - query_history: zuletzt genutzte Queries (für UI/Debug)
+# Hinweis: jobqueen_state selbst ist global in-memory; es bleibt nur während der Server/Workspace-Session persistent.
+
 MAX_CHAT_MESSAGES = 40
+
 
 
 

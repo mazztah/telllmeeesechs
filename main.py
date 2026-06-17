@@ -1456,6 +1456,13 @@ async def jobqueen_jobs(request: Request):
         data = await request.json()
         query = (data.get("query") or "").strip()
         chat_id = (data.get("chat_id") or "jobqueen").strip() or "jobqueen"
+
+        # Ensure jobqueen_state layout exists
+        from bot_state import jobqueen_state
+        jobqueen_state.setdefault(chat_id, {})
+        jobqueen_state[chat_id].setdefault("jobs_index", {})  # url_or_id -> job
+        jobqueen_state[chat_id].setdefault("query_history", [])
+
         if not query:
             return JSONResponse({"error": "query fehlt"}, status_code=400)
 
@@ -1516,17 +1523,39 @@ async def jobqueen_jobs(request: Request):
             job_id = j.get("id")
             if job_id is None:
                 job_id = j.get("redirect_url") or j.get("url") or ""
-            jobs.append({
-                "id": str(job_id or ""),
 
+            url = j.get("redirect_url") or j.get("url") or ""
+            jid = str(job_id or "")
+
+            job_obj = {
+                "id": jid,
                 "title": j.get("title") or "",
                 "company": (j.get("company") or {}).get("display_name") if isinstance(j.get("company"), dict) else j.get("company"),
                 "location": j.get("location") or (j.get("location", {}).get("display_name") if isinstance(j.get("location"), dict) else ""),
-                "url": j.get("redirect_url") or j.get("url") or "",
+                "url": url,
                 "description_snippet": (j.get("description") or "")[:300],
-            })
+            }
+
+            jobs.append(job_obj)
+
+        # Persist + dedupe across multiple searches within session
+        from bot_state import jobqueen_state as _jqs
+        idx: dict = _jqs[chat_id].setdefault("jobs_index", {})
+        _now = datetime.now().isoformat()
+        _jqs[chat_id].setdefault("query_history", []).append({"query": query, "at": _now})
+
+        for jb in jobs:
+            url_key = (jb.get("url") or "").strip()
+            id_key = (str(jb.get("id") or "").strip())
+            key = url_key or id_key
+            # If both url and id missing: create unique key to avoid overwriting others
+            if not key:
+                key = f"no-url-no-id-{len(idx)}"
+            idx[key] = jb
+
 
         return JSONResponse({"jobs": jobs})
+
     except Exception as e:
         logger.error(f"jobqueen_jobs Fehler: {e}", exc_info=True)
         return JSONResponse({"error": str(e)[:500]}, status_code=500)
@@ -1534,33 +1563,47 @@ async def jobqueen_jobs(request: Request):
 
 @app.post("/api/jobqueen/excel")
 async def jobqueen_excel(request: Request):
-    """JobQueen Excel Endpoint (echtes XLSX) from provided jobs or LLM."""
+    """JobQueen Excel Endpoint (echtes XLSX)
+
+    Export Standard: aus jobqueen_state[chat_id]["jobs_index"] (kumuliert über mehrere Suchläufe).
+    Wenn der Client zusätzlich "jobs" mitsendet, werden diese defensiv ebenfalls hinzugefügt/merged.
+    """
     try:
         data = await request.json()
         query = (data.get("query") or "").strip()
         chat_id = (data.get("chat_id") or "jobqueen").strip() or "jobqueen"
         jobs = data.get("jobs")
 
-        if not query and not jobs:
-            return JSONResponse({"error": "query oder jobs fehlt"}, status_code=400)
+        from bot_state import jobqueen_state
+        jobqueen_state.setdefault(chat_id, {})
+        jobqueen_state[chat_id].setdefault("jobs_index", {})
 
-        if not jobs:
-            # fetch via our own endpoint logic (call Adzuna directly is duplicated; keep simple)
-            jobs_resp = await jobqueen_jobs(request)  # best-effort reuse; but request body already read
-            # can't reuse request body safely; so we call LLM fallback instead
-            from bot_ai import generate_response
-            msg = f"Erstelle 15 Jobs als JSON array (nur JSON) mit Feldern: id,title,company,location,url,description_snippet. Query: {query}."
-            reply = await generate_response(chat_id=chat_id, message=msg)
-            jobs = json.loads(reply)
-            if isinstance(jobs, dict) and jobs.get("jobs"):
-                jobs = jobs["jobs"]
+        # Merge incoming jobs (optional) into index
+        if isinstance(jobs, list) and jobs:
+            idx: dict = jobqueen_state[chat_id].setdefault("jobs_index", {})
+            for jb in jobs:
+                if not isinstance(jb, dict):
+                    continue
+                url_key = (jb.get("url") or "").strip()
+                id_key = (str(jb.get("id") or "").strip())
+                key = url_key or id_key
+                if not key:
+                    key = f"no-url-no-id-{len(idx)}"
+                idx[key] = jb
+
+        # Export all accumulated jobs by default
+        idx = jobqueen_state[chat_id].get("jobs_index") or {}
+        jobs_to_export = list(idx.values())
+
+        if not jobs_to_export:
+            return JSONResponse({"error": "Keine Jobs im Workspace-Session-State gefunden. Bitte zuerst suchen."}, status_code=400)
 
         # enforce schema
         columns = [
             "Job-ID","Titel","Firma","Ort","URL","Beschreibung (Snippet)"
         ]
         rows = []
-        for j in (jobs or []):
+        for j in jobs_to_export:
             rows.append([
                 str(j.get("id") or ""),
                 j.get("title") or "",
@@ -1569,6 +1612,7 @@ async def jobqueen_excel(request: Request):
                 j.get("url") or "",
                 j.get("description_snippet") or "",
             ])
+
 
         from dv import create_excel_from_data
         buffer = create_excel_from_data(rows, columns, title="JobQueen_Export.xlsx")
