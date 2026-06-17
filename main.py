@@ -1227,6 +1227,24 @@ async def brain_dashboard():
         <p style="text-align:center;">Bitte lade die Datei als <code>static/brain.html</code> hoch.</p>
     """, status_code=404)
 
+@app.get("/landing", response_class=HTMLResponse)
+@app.get("/landing/", response_class=HTMLResponse)
+async def jobqueen_landing():
+    f = Path(__file__).parent / "templates" / "landing.html"
+    if f.exists():
+        return HTMLResponse(f.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1 style='color:red;text-align:center;margin-top:50px;'>landing.html fehlt in templates/</h1>", status_code=404)
+
+
+@app.get("/starter", response_class=HTMLResponse)
+@app.get("/starter/", response_class=HTMLResponse)
+async def jobqueen_starter():
+    f = Path(__file__).parent / "templates" / "starter.html"
+    if f.exists():
+        return HTMLResponse(f.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1 style='color:red;text-align:center;margin-top:50px;'>starter.html fehlt in templates/</h1>", status_code=404)
+
+
 
 @app.get("/")
 async def root():
