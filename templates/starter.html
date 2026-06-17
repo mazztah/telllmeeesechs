@@ -346,6 +346,7 @@
 
     <!-- Search -->
     <div class="search-bar">
+
       <div class="search-input-wrap">
         <span style="color:var(--muted);font-size:0.9rem">🔍</span>
         <input id="main-search" type="text"
@@ -361,6 +362,7 @@
         <a onclick="addTip('Alle 20 Portale werden gleichzeitig abgefragt')">Alle anzeigen</a>
       </div>
       <div class="platform-grid">
+
         <div class="platform-card" onclick="openPlatform('indeed')">
           <div class="plat-top">
             <div class="plat-icon">🌐</div>
@@ -465,6 +467,16 @@
     </div>
 
   </div><!-- /tab-suche -->
+
+  <!-- Jobs Ergebnisse -->
+  <div style="margin-top:12px;">
+    <div class="sec-head">
+      <h2>Stellenangebote</h2>
+      <a onclick="addTip('Jobs erscheinen nach der Suche hier sowie im Export/XLSX')">Hinweis</a>
+    </div>
+    <div id="jobs-container" class="platform-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr));"></div>
+  </div>
+
 
   <!-- TAB: BOARD -->
   <div class="content" id="tab-board" style="display:none">
@@ -633,19 +645,116 @@ async function sendMsg() {
 function chipSend(text) { inp.value = text; sendMsg(); }
 function addTip(msg) { addMsg('💡 ' + msg); }
 
-// Main search → sends to chat
-function doSearch() {
+function renderJobs(jobs) {
+  const container = document.getElementById('jobs-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!jobs || !jobs.length) {
+    container.innerHTML = '<div class="kanban-empty" style="grid-column:1/-1;">Keine Treffer</div>';
+    return;
+  }
+
+  jobs.forEach(j => {
+    const card = document.createElement('div');
+    card.className = 'platform-card';
+    card.style.cursor = 'pointer';
+    card.onclick = () => {
+      // Quick action: ask LLM for cover letter (HTML)
+      inp.value = `Anschreiben erstellen für: ${j.title} bei ${j.company} (${j.location}).`;
+      sendMsg();
+    };
+
+    const company = j.company || 'Unbekannt';
+    const loc = j.location || '';
+    const snippet = j.description_snippet || '';
+    const url = j.url || '';
+
+    card.innerHTML = `
+      <div class="plat-top">
+        <div class="plat-icon">🧩</div>
+        <div>
+          <div class="plat-name">${company}</div>
+          <span class="plat-tag">${(j.title || '').slice(0, 22)}</span>
+        </div>
+      </div>
+      <div class="plat-desc" style="margin-top:8px;">${loc ? '📍 ' + loc + '<br>' : ''}${snippet ? snippet.slice(0, 120) + '…' : '—'}</div>
+      ${url ? `<div style="margin-top:10px;font-size:0.7rem;color:var(--accent);">🔗 Quelle: ${url.slice(0, 28)}…</div>` : ''}
+    `;
+
+    container.appendChild(card);
+  });
+}
+
+// Main search → loads jobs JSON + render Kacheln
+
+async function doSearch() {
   const q = document.getElementById('main-search').value.trim();
   if (!q) return;
-  inp.value = q; sendMsg();
-  document.getElementById('main-search').value = '';
+
+  // Cache reset
+  window.__jobqueen_last_query = q;
+  window.__jobqueen_last_jobs = [];
+
+  addMsg(`🔍 Suche Jobs für <b>${q}</b>…`, false);
+  try {
+    const res = await fetch('/api/jobqueen/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q, chat_id: 'jobqueen', limit: 20, page: 1 })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const jobs = (data && data.jobs) ? data.jobs : [];
+
+    window.__jobqueen_last_jobs = jobs;
+
+    renderJobs(jobs);
+    addMsg(`✅ ${jobs.length} Treffer gefunden.`, false);
+
+  } catch (e) {
+    addMsg('❌ Jobsuche fehlgeschlagen: ' + (e && e.message ? e.message : String(e)), false);
+  } finally {
+    // keep input (so export can reuse)
+  }
 }
+
 document.getElementById('main-search').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
 });
 
-// Export action
-function doExport() { inp.value = 'Excel Export starten'; sendMsg(); }
+
+// Export action (echtes XLSX)
+async function doExport() {
+  const q = document.getElementById('main-search').value.trim();
+  if (!q) {
+    addMsg('💡 Bitte zuerst eine Suche ausführen.', false);
+    return;
+  }
+  addMsg('📤 Erstelle XLSX Export…', false);
+  try {
+    // Nutze zuletzt gecachte Jobs wenn vorhanden
+    const jobs = window.__jobqueen_last_jobs || [];
+    const res = await fetch('/api/jobqueen/excel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q, chat_id: 'jobqueen', jobs })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'JobQueen_Export.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    addMsg('❌ Excel Export fehlgeschlagen: ' + (e && e.message ? e.message : String(e)), false);
+  }
+}
+
 
 // Platform click
 function openPlatform(name) {
