@@ -1477,12 +1477,12 @@ async def jobqueen_jobs(request: Request):
             system_prompt = (
                 "Du bist ein JSON-Generator fuer Stellenanzeigen. "
                 "Antworte AUSSCHLIESSLICH mit gueltigem JSON, kein Fliesstext, keine Markdown-Codeblocks. "
-                "Nutze immer dieses Schema: "
-                "{"jobs": [{"id": "string", "title": "string", "company": "string", "
-                ""location": "string", "url": "string", "description_snippet": "string"}]}"
+                'Nutze immer dieses Schema: '
+                '{"jobs": [{"id": "...", "title": "...", "company": "...", '
+                '"location": "...", "url": "...", "description_snippet": "..."}]}'
             )
             user_msg = (
-                f"Erstelle 8 realistische Stellenangebote fuer: "{query}" in Deutschland/DACH. "
+                f'Erstelle 8 realistische Stellenangebote fuer: "{query}" in Deutschland/DACH. '
                 "Nutze echte Firmennamen, realistische Orte, glaubwuerdige Beschreibungen und "
                 "plausible (aber fiktive) URLs im Format https://jobs.example.de/stelle-123. "
                 "Antwort: nur JSON, kein Text darum herum."
