@@ -24,6 +24,10 @@
     }
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
     html, body { height:100%; overflow:hidden; -webkit-font-smoothing:antialiased; }
+    @media (max-width: 900px) {
+      /* Mobile: nested scrolling für das Chat-Fenster ermöglichen */
+      html, body { overflow-y:auto; }
+    }
     body {
       font-family:'Inter', system-ui, sans-serif;
       background:var(--bg); color:var(--text);
@@ -207,6 +211,8 @@
     .chat-messages {
       flex:1; overflow-y:auto; padding:14px;
       display:flex; flex-direction:column; gap:10px;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
     }
     .msg {
       max-width:90%; padding:10px 13px;
