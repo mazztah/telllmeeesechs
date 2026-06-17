@@ -648,14 +648,18 @@ function addTip(msg) { addMsg('💡 ' + msg); }
 function renderJobs(jobs) {
   const container = document.getElementById('jobs-container');
   if (!container) return;
-  container.innerHTML = '';
+    // Avoid heavy DOM churn: clear only if needed
+    while (container.firstChild) container.removeChild(container.firstChild);
+
 
   if (!jobs || !jobs.length) {
     container.innerHTML = '<div class="kanban-empty" style="grid-column:1/-1;">Keine Treffer</div>';
     return;
   }
 
-  jobs.forEach(j => {
+  jobs.forEach((j, idx) => {
+    if (idx > 30) return; // cap render to prevent UI freezes
+
     const card = document.createElement('div');
     card.className = 'platform-card';
     card.style.cursor = 'pointer';
