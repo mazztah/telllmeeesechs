@@ -352,7 +352,8 @@
         <input id="main-search" type="text"
           placeholder="z.B. Immobilienkaufmann Hannover hybrid 45k …">
       </div>
-      <button class="search-run" onclick="doSearch()">Suchen</button>
+      <button class="search-run" onclick="doSearch();" ontouchend="onMobileSearch()">Suchen</button>
+
     </div>
 
     <!-- Platforms -->
@@ -642,7 +643,17 @@ async function sendMsg() {
   }
 }
 
-function chipSend(text) { inp.value = text; sendMsg(); }
+function chipSend(text) {
+  // Chips sollen auf Mobile sofort rendern können
+  inp.value = text;
+  sendMsg();
+}
+
+function onMobileSearch() {
+  // Falls Mobile WebView das Button-Click nicht sauber ausführt:
+  doSearch();
+}
+
 function addTip(msg) { addMsg('💡 ' + msg); }
 
 function renderJobs(jobs) {
