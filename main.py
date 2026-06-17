@@ -1443,6 +1443,55 @@ async def webhook_endpoint(request: Request):
         return {"ok": True}  # Immer 200 zurückgeben!
 
 
+# ── JobQueen Landing & Starter Pages ───────────────────────────────────────
+
+@app.get("/landing", response_class=HTMLResponse)
+@app.get("/landing/", response_class=HTMLResponse)
+async def jobqueen_landing():
+    """JobQueen Landing Page (Marketing)"""
+    try:
+        template_path = Path(__file__).parent / "templates" / "landing.html"
+        if template_path.exists():
+            return HTMLResponse(template_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(f"landing.html Fehler: {e}")
+    
+    # Fallback, falls Datei fehlt
+    return HTMLResponse("""
+        <h1 style="color:#a78bfa;text-align:center;margin-top:80px;font-family:Inter,sans-serif;">
+            👑 JobQueen Landing Page<br>
+            <small style="color:#777;">Bitte lade landing.html in den templates/ Ordner hoch</small>
+        </h1>
+    """)
+
+
+@app.get("/starter", response_class=HTMLResponse)
+@app.get("/starter/", response_class=HTMLResponse)
+async def jobqueen_starter():
+    """JobQueen Workspace mit Top-Apps + Chat"""
+    try:
+        template_path = Path(__file__).parent / "templates" / "starter.html"
+        if template_path.exists():
+            return HTMLResponse(template_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(f"starter.html Fehler: {e}")
+    
+    # Fallback
+    return HTMLResponse("""
+        <h1 style="color:#a78bfa;text-align:center;margin-top:80px;font-family:Inter,sans-serif;">
+            👑 JobQueen Workspace<br>
+            <small style="color:#777;">Bitte lade starter.html in den templates/ Ordner hoch</small>
+        </h1>
+    """)
+
+
+# Optional: Root auf Landing umleiten
+@app.get("/", response_class=HTMLResponse)
+async def root_redirect():
+    return await jobqueen_landing()
+
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # API ENDPOINTS (Brain etc.)
 # ═══════════════════════════════════════════════════════════════════════════════
