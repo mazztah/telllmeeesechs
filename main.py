@@ -1512,8 +1512,13 @@ async def jobqueen_jobs(request: Request):
         raw_jobs = payload.get("results") or []
         jobs = []
         for j in raw_jobs[:per_page]:
+            # Adzuna: id kann fehlen, dann fallback auf redirect_url/url
+            job_id = j.get("id")
+            if job_id is None:
+                job_id = j.get("redirect_url") or j.get("url") or ""
             jobs.append({
-                "id": str(j.get("id") or ""),
+                "id": str(job_id or ""),
+
                 "title": j.get("title") or "",
                 "company": (j.get("company") or {}).get("display_name") if isinstance(j.get("company"), dict) else j.get("company"),
                 "location": j.get("location") or (j.get("location", {}).get("display_name") if isinstance(j.get("location"), dict) else ""),
