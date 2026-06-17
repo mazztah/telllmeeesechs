@@ -34,6 +34,7 @@
       font-family:'Inter', system-ui, sans-serif;
       background:var(--bg); color:var(--text);
       display:flex; height:100dvh;
+      flex-direction:row;
     }
     ::-webkit-scrollbar { width:5px; }
     ::-webkit-scrollbar-track { background:transparent; }
@@ -297,11 +298,12 @@
     .chat-send:hover { background:#c4b5fd; }
 
     @media(max-width:900px) {
-      /* Mobile: Chat-Seitenleiste sichtbar lassen, damit man zum Chat scrollen kann */
-      .chat-sidebar { display:flex; width:100%; border-left:none; }
-      /* layout: Chat unter den Tabs statt rechts */
+      /* Mobile: layout wieder wie Desktop (links bleibt möglich), aber Gesamtseite darf scrollen */
+      .chat-sidebar { width:100%; border-left:none; }
       body { flex-direction:column; }
-      .main { width:100%; }
+      /* Hauptinhalt darf nicht abgeschnitten werden */
+      .main { overflow:hidden; }
+      .content { overflow-y:visible; }
     }
     @media(max-width:640px) {
       .kanban { grid-template-columns:repeat(2,1fr); }
@@ -617,10 +619,15 @@ async function sendMsg() {
   inp.value = ''; inp.style.height = 'auto';
 
   const t = showTyping();
-  setTimeout(() => {
+  const t0 = Date.now();
+  try {
+    const reply = await callJobQueenLLM(text);
     removeTyping();
-    addMsg(getReply(text));
-  }, 600 + Math.random()*600);
+    addMsg(reply, false);
+  } catch (e) {
+    removeTyping();
+    addMsg('❌ Fehler: ' + (e && e.message ? e.message : String(e)), false);
+  }
 }
 
 function chipSend(text) { inp.value = text; sendMsg(); }
