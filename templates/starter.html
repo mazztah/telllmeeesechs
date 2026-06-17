@@ -844,7 +844,7 @@ async function doSearch() {
     try {
       const reply = await callChat(
         `Suche Stellenangebote für: "${q}" in Deutschland/DACH. ` +
-        `Nenne 6 konkrete Beispiele mit Jobtitel, Firma, Ort und einer Kurzbeschreibung. ` +
+        `Nenne 20 konkrete Beispiele mit Jobtitel, Firma, Ort und einer Kurzbeschreibung. ` +
         `Formatiere als nummerierte Liste.`
       );
       container.innerHTML = '';
@@ -919,8 +919,10 @@ async function doExport() {
     const res = await fetch('/api/jobqueen/excel', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
+      // jobs optional: Server exportiert Standardmäßig aus dem persistenten State
       body:JSON.stringify({query:q, chat_id:'jobqueen', jobs:lastJobs})
     });
+
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
