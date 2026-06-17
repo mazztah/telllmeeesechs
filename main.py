@@ -1623,6 +1623,98 @@ async def jobqueen_coverletters(request: Request):
         return JSONResponse({"error": str(e)[:500]}, status_code=500)
 
 
+class CvAnalyzeRequest(BaseModel):
+    chat_id: Optional[str] = None
+    filename: Optional[str] = None
+
+
+@app.post("/api/jobqueen/cv/analyze")
+async def jobqueen_cv_analyze(request: Request):
+    """JobQueen CV Analyse: Upload via multipart (file + metadata) oder JSON-conform body.
+
+    Frontend kann entweder:
+    - multipart/form-data: file=<UploadFile>, chat_id=<str>
+    - oder (Fallback) JSON mit base64 content (falls später implementiert)
+
+    Speichert Ergebnis in bot_state.jobqueen_state[chat_id].profile
+    """
+    try:
+        # multipart: FastAPI Request + form extraction
+        form = await request.form()
+        chat_id = (form.get("chat_id") or "jobqueen").strip() if form.get("chat_id") else "jobqueen"
+
+        file = None
+        # Starlette UploadFile im form
+        for k, v in form.items():
+            if hasattr(v, "filename") and hasattr(v, "read"):
+                file = v
+                break
+        if file is None:
+            return JSONResponse({"error": "CV-Datei fehlt"}, status_code=400)
+
+        filename = getattr(file, "filename", None) or (form.get("filename") or "cv")
+        suffix = Path(filename).suffix.lower() or ".bin"
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp_path = tmp.name
+                content = await file.read()
+                tmp.write(content)
+
+            from dv import extract_content
+            extracted_text = extract_content(tmp_path, max_chars=30000)
+
+            from bot_ai import generate_response
+            # Strukturierte Analyse inklusive korrekter Berufserfahrung (Monate/Jahre) und Stärken detailliert
+            msg = (
+                "Analysiere folgenden Lebenslauf (deutsch oder gemischt) und gib ein STRIKT strukturiertes JSON zurück. "
+                "Kein Fließtext außerhalb des JSON.\n\n"
+
+                "JSON-Schema:\n"
+                "{\n"
+                '  "name": string|null,\n'
+                '  "skills": string[],\n'
+                '  "languages": string[],\n'
+                '  "experience_years": number,\n'
+                '  "experience_months": number,\n'
+                '  "experience_details": {"total_months": number, "roles": [{"title": string, "company": string, "start": string|null, "end": string|null, "months": number}]} ,\n'
+                '  "strengths": [{"strength": string, "evidence": string, "relevance": string}],\n'
+                '  "suggested_job_titles": [{"title": string, "reason": string}],\n'
+                '  "missing_info_questions": string[]\n'
+                "}\n\n"
+                "Regeln:\n"
+                "- Berechne Berufserfahrung korrekt: berücksichtige mehrere Rollen, nutze Start/End-Daten wenn vorhanden; falls nur Jahre: exakt auf Monate aufteilen (heuristisch, aber konsistent).\n"
+                "- strengths: mindestens 8 Einträge, je mit Beleg (konkret aus dem Lebenslauf) und Relevanz (warum für passende Jobs).\n"
+                "- suggested_job_titles: mindestens 8 konkrete Jobtitel passend zu Skills + Erfahrung.\n"
+                "- missing_info_questions: max 6 Fragen nur wenn nötig (z.B. Datenlücken).\n\n"
+                f"Lebenslauf Datei: {filename}\n\nEXTRAHIERTER TEXT:\n{extracted_text[:25000]}"
+            )
+
+            reply = await generate_response(chat_id=chat_id, message=msg)
+            # robustes JSON parsing
+            profile = json.loads(reply) if reply else {}
+
+            from bot_state import jobqueen_state
+            jobqueen_state.setdefault(chat_id, {})
+            jobqueen_state[chat_id]["profile"] = profile
+            jobqueen_state[chat_id]["profile_uploaded_filename"] = filename
+            jobqueen_state[chat_id]["profile_last_analyzed_at"] = datetime.now().isoformat()
+            jobqueen_state[chat_id].setdefault("jobs", [])
+
+            return JSONResponse({"success": True, "profile": profile})
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+    except Exception as e:
+        logger.error(f"jobqueen_cv_analyze Fehler: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)[:500]}, status_code=500)
+
+
 @app.post("/api/jobqueen/chat")
 async def jobqueen_chat(request: Request):
     """JobQueen Chat Endpoint (Groq Llama-4 via bot_ai.generate_response)."""

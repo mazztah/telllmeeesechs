@@ -166,7 +166,12 @@ stream_active: dict = {}
 vision_mode_active: dict = {}
 selected_brain_deletes: dict = {}
 
+# JobQueen Workspace State (persistent during a single workspace/server session)
+jobqueen_state: dict = {}
+
 MAX_CHAT_MESSAGES = 40
+
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TIMEOUT KONSTANTEN
