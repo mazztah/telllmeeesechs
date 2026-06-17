@@ -208,7 +208,7 @@ try:
         cmd_whisper, cmd_monster, cmd_cyberpunk, cmd_cave, cmd_helium, cmd_reverse,
         cmd_startstream, cmd_endstream, cmd_livevoice, cmd_scanner, cmd_shellgame,
         handle_ttv26, cmd_lyria, cmd_suno, cmd_freebeat, cmd_convert3d, cmd_text_to_3d,
-        cmd_readme, cmd_diagnose, cmd_savecode,
+        cmd_readme, cmd_diagnose, cmd_savecode, cmd_jobqueen,
     )
 except ImportError as e:
     logger.warning(f"handlers_cmd nicht verfuegbar: {e}")
@@ -612,6 +612,10 @@ if application:
     application.add_handler(CommandHandler("codefile", cmd_codefile))
     application.add_handler(CommandHandler("py", cmd_py))
     application.add_handler(CommandHandler("htmlapp", cmd_htmlapp))
+
+    # direkt dahinter einfügen:
+    application.add_handler(CommandHandler("jobqueen", cmd_jobqueen))
+    application.add_handler(CommandHandler("jobs", cmd_jobqueen)) 
 
     # === NEU: Sendcode Handler (mit PDF, ZIP, Einzeldateien) ===
     from send_code_handler import cmd_send_code, sendcode_callback
