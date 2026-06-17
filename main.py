@@ -1445,6 +1445,36 @@ async def webhook_endpoint(request: Request):
 
 # ── JobQueen Landing & Starter Pages ───────────────────────────────────────
 
+# NOTE: JobQueen Web-Frontend (templates/landing.html, templates/starter.html)
+# nutzt einen echten LLM-Chat über /api/jobqueen/chat.
+
+
+@app.post("/api/jobqueen/chat")
+async def jobqueen_chat(request: Request):
+    """JobQueen Chat Endpoint (Groq Llama-4 via bot_ai.generate_response)."""
+    try:
+        data = await request.json()
+        message = (data.get("message") or "").strip()
+        if not message:
+            return JSONResponse({"reply": "Bitte gib eine Nachricht ein."}, status_code=400)
+
+        # chat_id im Backend nutzt History; wir binden es an einen festen Namespace.
+        chat_id = (data.get("chat_id") or "jobqueen").strip() or "jobqueen"
+
+        # model wird im aktuellen bot_ai.generate_response intern als Fallback-Liste umgesetzt.
+        # Falls du später model-Override implementierst, kann diese Variable im bot_ai verwendet werden.
+        _ = data.get("model")
+
+        # Echte LLM-Generierung:
+        from bot_ai import generate_response
+        reply = await generate_response(chat_id=chat_id, message=message)
+        return JSONResponse({"reply": reply})
+
+    except Exception as e:
+        logger.error(f"JobQueen Chat Fehler: {e}", exc_info=True)
+        return JSONResponse({"reply": "Entschuldigung, es gab einen technischen Fehler."}, status_code=500)
+
+
 @app.get("/landing", response_class=HTMLResponse)
 @app.get("/landing/", response_class=HTMLResponse)
 async def jobqueen_landing():
