@@ -1888,6 +1888,27 @@ async def diagnose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
+async def cmd_jobqueen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Öffnet JobQueen Landing- oder Starterseite als WebApp."""
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "👑 JobQueen Workspace öffnen",
+            web_app=WebAppInfo(url=f"{PUBLIC_APP_BASE_URL}/starter")
+        )],
+        [InlineKeyboardButton(
+            "🌐 Landing Page",
+            web_app=WebAppInfo(url=f"{PUBLIC_APP_BASE_URL}/landing")
+        )],
+    ])
+    await update.message.reply_text(
+        "👑 <b>JobQueen – KI-Jobsuche</b>\n\n"
+        "Durchsucht 20+ Jobbörsen gleichzeitig.\n"
+        "CV-Analyse, Anschreiben, Excel-Export.",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+
+
 # ====================== SAVE CODE COMMAND ======================
 async def cmd_savecode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
