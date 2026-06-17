@@ -582,7 +582,7 @@
   <!-- TAB: PROFIL -->
   <div class="content hidden" id="tab-profil">
     <div class="sec-head"><h2>Mein Profil</h2></div>
-    <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:18px;font-size:0.82rem;color:var(--text2);line-height:1.8">
+    <div id="profile-content" style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:18px;font-size:0.82rem;color:var(--text2);line-height:1.8">
       Lade deinen Lebenslauf im Chat-Bereich hoch. Die KI erstellt automatisch dein Profil mit Skills, Berufserfahrung und passenden Jobtiteln.
       <br><br>
       <button onclick="openChat()" style="padding:9px 18px;background:var(--accent);color:#0f0f1a;border:none;border-radius:8px;font-size:0.82rem;font-weight:700;cursor:pointer;">
@@ -590,6 +590,7 @@
       </button>
     </div>
   </div>
+
 
 </main>
 
@@ -951,18 +952,112 @@ function handleFileSelect(e) {
   const file = e.target.files[0];
   if (file) analyzeCV(file);
 }
+function escapeHtml(s){return escHtml(s);} 
+
+function renderProfile(profile){
+  const el = document.getElementById('profile-content');
+  if (!el) return;
+  if (!profile || typeof profile !== 'object') {
+    el.innerHTML = '<div style="color:var(--muted);">Kein Profil vorhanden.</div>';
+    return;
+  }
+
+  const name = profile.name || '';
+  const skills = Array.isArray(profile.skills) ? profile.skills : [];
+  const languages = Array.isArray(profile.languages) ? profile.languages : [];
+  const expY = profile.experience_years ?? '';
+  const expM = profile.experience_months ?? '';
+
+  const strengths = Array.isArray(profile.strengths) ? profile.strengths : [];
+  const topStrengths = strengths.slice(0, 8);
+
+  const suggested = Array.isArray(profile.suggested_job_titles) ? profile.suggested_job_titles : [];
+  const topSuggested = suggested.slice(0, 8);
+
+  let html = '';
+  html += '<div style="display:flex;flex-direction:column;gap:10px;">';
+
+  html += '<div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:12px;">';
+  html += '<div style="font-weight:800;color:var(--accent);font-size:0.85rem;margin-bottom:6px;">📋 Profil</div>';
+  html += `<div style="color:var(--text2);font-size:0.78rem;">${name ? '👤 ' + escapeHtml(name) : ''}</div>`;
+  html += '<div style="margin-top:8px;font-size:0.78rem;color:var(--text2);line-height:1.7;">';
+  html += `• Erfahrung: <b>${expY}${expY!==''?' Jahre':''}</b>${expM!==''?' & '+expM+' Monate':''}<br>`;
+  html += `• Skills: <b>${skills.length?skills.map(escapeHtml).join(' · '):'—'}</b><br>`;
+  html += `• Sprachen: <b>${languages.length?languages.map(escapeHtml).join(' · '):'—'}</b>`;
+  html += '</div>';
+  html += '</div>';
+
+  if (topStrengths.length) {
+    html += '<div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px;">';
+    html += '<div style="font-weight:800;color:var(--accent);font-size:0.85rem;margin-bottom:8px;">🏆 Stärken</div>';
+    html += '<div style="font-size:0.76rem;color:var(--text2);line-height:1.6;">' +
+      topStrengths.map(s => {
+        const strength = s && s.strength ? s.strength : '';
+        const ev = s && s.evidence ? s.evidence : '';
+        const rel = s && s.relevance ? s.relevance : '';
+        return `• <b>${escapeHtml(strength)}</b><br><span style="color:var(--muted)">Beleg:</span> ${escapeHtml(ev).slice(0,240)}<br><span style="color:var(--muted)">Relevanz:</span> ${escapeHtml(rel).slice(0,220)}<br><br>`;
+      }).join('');
+    html += '</div>';
+    html += '</div>';
+  }
+
+  if (topSuggested.length) {
+    html += '<div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px;">';
+    html += '<div style="font-weight:800;color:var(--accent);font-size:0.85rem;margin-bottom:8px;">🎯 Passende Jobtitel</div>';
+    html += '<div style="font-size:0.76rem;color:var(--text2);line-height:1.6;">' +
+      topSuggested.map(j => {
+        const t = j && j.title ? j.title : '';
+        const r = j && j.reason ? j.reason : '';
+        return `• <b>${escapeHtml(t)}</b><br><span style="color:var(--muted)">Warum:</span> ${escapeHtml(r).slice(0,220)}<br><br>`;
+      }).join('');
+    html += '</div>';
+    html += '</div>';
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
 function analyzeCV(file) {
   const target = isMobile() ? 'mobile' : 'desktop';
+  const chat_id = 'jobqueen';
+
   addMsg(`📄 <b>${escHtml(file.name)}</b> wird analysiert…`, true, target);
   showTyping(target);
-  setTimeout(() => {
-    removeTyping(target);
-    addMsg(`✅ <b>CV-Analyse abgeschlossen</b><br><br>📋 <b>Erkannt:</b><br>• Beruf: <b>Immobilienkaufmann/-frau</b><br>• Erfahrung: ca. 4 Jahre<br>• Skills: Mietrecht · SAP · Objektverwaltung<br>• Sprachen: Deutsch (C2) · Englisch (B2)<br><br>🎯 <b>Passende Jobtitel:</b><br>Immobilienkaufmann · Property Manager · Objektbetreuer`, false, target);
-    setTimeout(() => {
-      addMsg(`🏆 <b>Top-Matches:</b><br>1. Property Manager · Vonovia · 94%<br>2. Sachbearbeiter Vermietung · LEG · 91%<br>3. Immobilienkaufmann · TAG · 88%<br><br>Anschreiben für eine dieser Stellen erstellen?`, false, target);
-    }, 1200);
-  }, 1500);
+
+  const fd = new FormData();
+  fd.append('chat_id', chat_id);
+  // Starlette nimmt UploadFile; Fieldname muss 'file' sein
+  fd.append('file', file);
+  fd.append('filename', file.name);
+
+  fetch('/api/jobqueen/cv/analyze', {
+    method: 'POST',
+    body: fd
+  })
+    .then(async (res) => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        throw new Error(data.error || ('HTTP ' + res.status));
+      }
+      return data;
+    })
+    .then((data) => {
+      removeTyping(target);
+      const profile = data.profile || {};
+
+      addMsg('✅ <b>CV-Analyse abgeschlossen</b>. Profil wurde aktualisiert.', false, target);
+      // Profil-Tab updaten
+      renderProfile(profile);
+      // optional: in Profil-Tab springen
+      // setTab('profil',null);
+    })
+    .catch((e) => {
+      removeTyping(target);
+      addMsg('❌ CV-Analyse fehlgeschlagen: ' + e.message, false, target);
+    });
 }
+
 
 /* ─── GREETING ──────────────────────────────────────────────────── */
 function greet(target) {
