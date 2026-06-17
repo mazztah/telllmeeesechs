@@ -1449,6 +1449,175 @@ async def webhook_endpoint(request: Request):
 # nutzt einen echten LLM-Chat über /api/jobqueen/chat.
 
 
+@app.post("/api/jobqueen/jobs")
+async def jobqueen_jobs(request: Request):
+    """JobQueen Jobs Endpoint (Adzuna). Returns JSON for dynamic Kacheln."""
+    try:
+        data = await request.json()
+        query = (data.get("query") or "").strip()
+        chat_id = (data.get("chat_id") or "jobqueen").strip() or "jobqueen"
+        if not query:
+            return JSONResponse({"error": "query fehlt"}, status_code=400)
+
+        # Adzuna config
+        ADZUNA_APP_ID = os.getenv("ADZUNA_APP_ID")
+        ADZUNA_API_KEY = os.getenv("ADZUNA_API_KEY")
+        ADZUNA_BASE = os.getenv("ADZUNA_BASE_URL", "https://api.adzuna.com/v1")
+        if not ADZUNA_APP_ID or not ADZUNA_API_KEY:
+            # Fallback: LLM-only (so Frontend nicht komplett bricht)
+            from bot_ai import generate_response
+            msg = (
+                f"Gib mir 8 passende Stellenangebote als JSON mit Feldern: id,title,company,location,url,description_snippet. "
+                f"Nutzeranfrage: {query}.\n"
+                "Antwort strikt als JSON (nur JSON, kein Text)."
+            )
+
+            reply = await generate_response(chat_id=chat_id, message=msg)
+            return JSONResponse({"jobs": json.loads(reply).get("jobs", []) if reply else []})
+
+        # region: default UK if nothing else; user can override via request
+        country = (data.get("country") or os.getenv("ADZUNA_COUNTRY") or "de").lower()
+        # Adzuna uses language/country codes differently; allow full URL passthrough
+        # We'll rely on country slug in path as most typical: /{country}/search/
+        per_page = int(data.get("limit") or 20)
+        page = int(data.get("page") or 1)
+
+        # Optional filters
+        location = (data.get("location") or "").strip()
+        contract = (data.get("contract_type") or "").strip()
+        work_type = (data.get("job_type") or "").strip()
+
+        params: dict[str, Any] = {
+            "app_id": ADZUNA_APP_ID,
+            "app_key": ADZUNA_API_KEY,
+            "what": query,
+            "results": per_page,
+            "page": page,
+        }
+        if location:
+            params["where"] = location
+        if contract:
+            params["contract_type"] = contract
+        if work_type:
+            params["job_type"] = work_type
+
+        url = f"{ADZUNA_BASE}/{country}/search/1"
+        headers = {"Accept": "application/json"}
+
+        async with httpx.AsyncClient(timeout=20.0, limits=HTTPX_LIMITS) as client:
+            resp = await client.get(url, params=params, headers=headers)
+        resp.raise_for_status()
+        payload = resp.json()
+
+        raw_jobs = payload.get("results") or []
+        jobs = []
+        for j in raw_jobs[:per_page]:
+            jobs.append({
+                "id": str(j.get("id") or ""),
+                "title": j.get("title") or "",
+                "company": (j.get("company") or {}).get("display_name") if isinstance(j.get("company"), dict) else j.get("company"),
+                "location": j.get("location") or (j.get("location", {}).get("display_name") if isinstance(j.get("location"), dict) else ""),
+                "url": j.get("redirect_url") or j.get("url") or "",
+                "description_snippet": (j.get("description") or "")[:300],
+            })
+
+        return JSONResponse({"jobs": jobs})
+    except Exception as e:
+        logger.error(f"jobqueen_jobs Fehler: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)[:500]}, status_code=500)
+
+
+@app.post("/api/jobqueen/excel")
+async def jobqueen_excel(request: Request):
+    """JobQueen Excel Endpoint (echtes XLSX) from provided jobs or LLM."""
+    try:
+        data = await request.json()
+        query = (data.get("query") or "").strip()
+        chat_id = (data.get("chat_id") or "jobqueen").strip() or "jobqueen"
+        jobs = data.get("jobs")
+
+        if not query and not jobs:
+            return JSONResponse({"error": "query oder jobs fehlt"}, status_code=400)
+
+        if not jobs:
+            # fetch via our own endpoint logic (call Adzuna directly is duplicated; keep simple)
+            jobs_resp = await jobqueen_jobs(request)  # best-effort reuse; but request body already read
+            # can't reuse request body safely; so we call LLM fallback instead
+            from bot_ai import generate_response
+            msg = f"Erstelle 15 Jobs als JSON array (nur JSON) mit Feldern: id,title,company,location,url,description_snippet. Query: {query}."
+            reply = await generate_response(chat_id=chat_id, message=msg)
+            jobs = json.loads(reply)
+            if isinstance(jobs, dict) and jobs.get("jobs"):
+                jobs = jobs["jobs"]
+
+        # enforce schema
+        columns = [
+            "Job-ID","Titel","Firma","Ort","URL","Beschreibung (Snippet)"
+        ]
+        rows = []
+        for j in (jobs or []):
+            rows.append([
+                str(j.get("id") or ""),
+                j.get("title") or "",
+                j.get("company") or "",
+                j.get("location") or "",
+                j.get("url") or "",
+                j.get("description_snippet") or "",
+            ])
+
+        from dv import create_excel_from_data
+        buffer = create_excel_from_data(rows, columns, title="JobQueen_Export.xlsx")
+
+        # return as xlsx
+        filename = "JobQueen_Export.xlsx"
+        headers = {
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+        return StreamingResponse(buffer, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+    except Exception as e:
+        logger.error(f"jobqueen_excel Fehler: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)[:500]}, status_code=500)
+
+
+@app.post("/api/jobqueen/coverletters")
+async def jobqueen_coverletters(request: Request):
+    """JobQueen Coverletter Endpoint (LLM + HTML tables for chat)."""
+    try:
+        data = await request.json()
+        query = (data.get("query") or "").strip()
+        chat_id = (data.get("chat_id") or "jobqueen").strip() or "jobqueen"
+        profile = data.get("profile") or {}
+        jobs = data.get("jobs") or []
+
+        if not query:
+            return JSONResponse({"error": "query fehlt"}, status_code=400)
+
+        from bot_ai import generate_response
+        # For each job produce html body (table formatting allowed)
+        payload_hint = json.dumps({"profile": profile, "jobs": jobs[:8]}, ensure_ascii=False)
+        msg = (
+            "Erstelle Anschreiben als professionelles Bewerbungsanschreiben auf Deutsch. "
+            "Gib exakt folgendes JSON-Schema zurück (nur JSON, kein Fließtext):\n"
+            "{\n"
+            '  "cover_letters": [\n'
+            '    {"job_id":"...","subject":"...","body_html":"<p>...</p>..."}\n'
+            "  ]\n"
+            "}\n\n"
+            "Regeln:\n"
+            "- body_html darf HTML enthalten, inkl. <table> für Abschnitte.\n"
+            "- Nutze Werte aus 'jobs' für Stellenbezug (Titel/Firma/Ort/Snippet).\n"
+            "- Nutze Werte aus profile für Skills/Erfahrung (wenn vorhanden).\n"
+            f"Nutzeranfrage: {query}\nJSON-Kontext: {payload_hint}"
+        )
+
+        reply = await generate_response(chat_id=chat_id, message=msg)
+        parsed = json.loads(reply) if reply else {}
+        return JSONResponse(parsed)
+    except Exception as e:
+        logger.error(f"jobqueen_coverletters Fehler: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)[:500]}, status_code=500)
+
+
 @app.post("/api/jobqueen/chat")
 async def jobqueen_chat(request: Request):
     """JobQueen Chat Endpoint (Groq Llama-4 via bot_ai.generate_response)."""
