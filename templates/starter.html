@@ -24,10 +24,12 @@
     }
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
     html, body { height:100%; overflow:hidden; -webkit-font-smoothing:antialiased; }
+
     @media (max-width: 900px) {
-      /* Mobile: nested scrolling für das Chat-Fenster ermöglichen */
+      /* Mobile: damit man zur Chat-Sidebar scrollen kann (Android WebView/Browsers) */
       html, body { overflow-y:auto; }
     }
+
     body {
       font-family:'Inter', system-ui, sans-serif;
       background:var(--bg); color:var(--text);
@@ -295,7 +297,11 @@
     .chat-send:hover { background:#c4b5fd; }
 
     @media(max-width:900px) {
-      .chat-sidebar { display:none; }
+      /* Mobile: Chat-Seitenleiste sichtbar lassen, damit man zum Chat scrollen kann */
+      .chat-sidebar { display:flex; width:100%; border-left:none; }
+      /* layout: Chat unter den Tabs statt rechts */
+      body { flex-direction:column; }
+      .main { width:100%; }
     }
     @media(max-width:640px) {
       .kanban { grid-template-columns:repeat(2,1fr); }
