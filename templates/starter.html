@@ -575,62 +575,30 @@ function removeTyping() {
   if (t) t.remove();
 }
 
-// Smart keyword-based responses
-function getReply(msg) {
-  const m = msg.toLowerCase();
-
-  // Job search
-  const searchMatch = m.match(/(?:suche?|such|find|zeig|stell(?:en)?)\s+(?:für\s+)?(.+?)(?:\s+in\s+(\w+))?(?:\s+\d+k)?$/i) ||
-                       m.match(/(.+?)\s+(?:in\s+)?(\w+)\s+(?:suchen?|finden?|jobs?)/i);
-  const cityMatch = m.match(/\b(hannover|berlin|münchen|hamburg|frankfurt|köln|stuttgart|düsseldorf|dortmund|remote)\b/i);
-  const jobMatch  = m.match(/\b(immobilienkaufmann|entwickler?|manager|designer|verkäufer|pflege|arzt|ingenieur|buchhalter|it|python|java|ux)\b/i);
-
-  if (m.includes('excel') || m.includes('export') || m.includes('download')) {
-    return `📊 <b>Excel-Export</b> wird vorbereitet...<br><br>✅ 50 Stellenangebote gefunden &amp; formatiert:<br>• Jobtitel · Firma · Ort · Gehalt<br>• Quelle · Datum · Anforderungen · URL<br><br>💾 <b>jobqueen_export.xlsx</b> wird gleich heruntergeladen. Welche Suchanfrage soll exportiert werden?`;
-  }
-
-  if (m.includes('anschreiben') || m.includes('cover')) {
-    return `✍️ <b>Anschreiben erstellen</b><br><br>Ich brauche kurz:<br>1. Welche Stelle? (Titel + Firma)<br>2. Dein Hintergrund (Beruf, Erfahrung)<br>3. Besondere Stärken<br><br>Oder lade deinen <b>Lebenslauf</b> hoch – ich extrahiere alles automatisch. 👇`;
-  }
-
-  if (m.includes('cv') || m.includes('lebenslauf') || m.includes('unterlag') || m.includes('analyse') || m.includes('upload')) {
-    return `📄 <b>CV-Analyse</b><br><br>Ziehe deinen Lebenslauf in das Upload-Feld unten oder klicke darauf.<br><br>Ich analysiere dann:<br>• Skills &amp; Technologien<br>• Berufserfahrung &amp; Ausbildung<br>• Passende Berufsbezeichnungen<br>• Matching-Score zu aktuellen Stellen`;
-  }
-
-  if (m.includes('interview') || m.includes('vorstellungsgespräch') || m.includes('vorbereitung')) {
-    const job = jobMatch ? jobMatch[0] : 'deine Zielstelle';
-    return `🎯 <b>Interview-Vorbereitung</b> für ${job}<br><br>Typische Fragen:<br>• „Erzählen Sie von sich" → 2-Min-Pitch vorbereiten<br>• „Warum unser Unternehmen?" → Recherche nötig<br>• „Stärken &amp; Schwächen?" → Konkrete Beispiele<br><br>Soll ich für eine spezifische Stelle Fragen generieren?`;
-  }
-
-  if (m.includes('hannover') || m.includes('berlin') || m.includes('münchen') || m.includes('hamburg') || m.includes('remote') || cityMatch) {
-    const city = cityMatch ? cityMatch[0] : 'deiner Region';
-    const job2 = jobMatch ? jobMatch[0] : 'passende Stellen';
-    const count = Math.floor(Math.random()*20)+28;
-    return `🔍 Suche läuft auf <b>Indeed · StepStone · LinkedIn · Arbeitsagentur · Jobware</b>...<br><br>✅ <b>${count} aktuelle Stellen</b> für <i>${job2}</i> in ${city} gefunden<br>📍 Davon ${Math.floor(count*0.4)} remote-fähig<br>💰 Gehaltsspanne: 38.000–62.000 €<br><br>Soll ich die Ergebnisse als <b>Excel exportieren</b> oder die <b>Top 5</b> direkt anzeigen?`;
-  }
-
-  if (jobMatch || searchMatch || m.includes('job') || m.includes('stelle') || m.includes('arbeit')) {
-    const job3 = jobMatch ? jobMatch[0] : 'die Stelle';
-    return `🔍 Ich suche jetzt auf <b>20+ Jobbörsen</b> nach <i>${job3}</i>...<br><br>✅ <b>43 aktuelle Angebote</b> gefunden<br>📍 Deutschland + Remote<br>💰 Ø Gehalt: ~45.000 €<br><br>In welcher <b>Stadt</b> suchst du? Dann filtere ich genauer.`;
-  }
-
-  if (m.includes('platform') || m.includes('portal') || m.includes('jobbörse') || m.includes('welche')) {
-    return `📋 <b>Empfohlene Portale</b> für deine Suche:<br><br>🥇 <b>Indeed</b> – größte Auswahl<br>🥈 <b>StepStone</b> – beste Qualität<br>🥉 <b>LinkedIn</b> – Netzwerk &amp; Headhunter<br><br>Für Spezialgebiete: Jobvector (MINT), Absolventa (Einsteiger), Green Jobs (Nachhaltigkeit)<br><br>Alle werden gleichzeitig abgefragt – du brauchst nur <b>eine Suche</b>.`;
-  }
-
-  if (m.includes('hallo') || m.includes('hi') || m.includes('hey') || m.includes('guten')) {
-    return `👋 Hallo! Ich bin <b>Queen</b>, dein KI-Karriereassistent.<br><br>Ich kann:<br>• 20+ Jobbörsen gleichzeitig durchsuchen<br>• Excel-Listen mit Stellen exportieren<br>• Deinen Lebenslauf analysieren<br>• Anschreiben schreiben<br>• Interview-Vorbereitung<br><br>Wo suchst du gerade? 🔍`;
-  }
-
-  if (m.includes('danke') || m.includes('super') || m.includes('toll') || m.includes('gut')) {
-    return `Gern! 👑 Was möchtest du als nächstes angehen?<br>• Weitere Stellen suchen<br>• Excel-Export starten<br>• Anschreiben schreiben`;
-  }
-
-  // Default
-  return `Gute Frage! Ich helfe dir bei:<br><br>🔍 <b>Jobsuche</b> – „Finde Stellen für [Beruf] in [Stadt]"<br>📤 <b>Export</b> – „50 Stellen als Excel exportieren"<br>📄 <b>CV-Analyse</b> – Lebenslauf hochladen &amp; analysieren<br>✍️ <b>Anschreiben</b> – „Anschreiben für [Stelle] erstellen"<br>🎯 <b>Interview</b> – Vorbereitung auf Vorstellungsgespräche<br><br>Was soll ich tun? 👇`;
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '<')
+    .replaceAll('>', '>')
+    .replaceAll('"', '"')
+    .replaceAll("'", '&#039;');
 }
 
-function sendMsg() {
+async function callJobQueenLLM(message) {
+  const res = await fetch('/api/jobqueen/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, chat_id: 'jobqueen' }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} ${txt}`);
+  }
+  const data = await res.json();
+  return data && data.reply ? data.reply : 'Entschuldigung, keine Antwort erhalten.';
+}
+
+async function sendMsg() {
   const text = inp.value.trim();
   if (!text) return;
   addMsg(text, true);
