@@ -181,12 +181,30 @@
     .job-card {
       background:var(--s1); border:1px solid var(--border);
       border-radius:12px; padding:14px; cursor:pointer;
+      transition: border-color .15s, box-shadow .15s;
     }
-    .job-card:active { border-color:rgba(167,139,250,0.4); }
+    .job-card:hover { border-color:rgba(167,139,250,0.5); box-shadow:0 2px 12px rgba(109,40,217,.08); }
+    .job-card:active { border-color:rgba(167,139,250,0.7); }
     .job-title { font-size:0.85rem; font-weight:700; margin-bottom:4px; }
     .job-meta { font-size:0.72rem; color:var(--text2); margin-bottom:6px; }
-    .job-desc { font-size:0.73rem; color:var(--muted); line-height:1.5; }
-    .job-link { font-size:0.7rem; color:var(--accent); margin-top:6px; }
+    .job-desc { font-size:0.73rem; color:var(--muted); line-height:1.5; margin-bottom:8px; }
+    .job-actions { display:flex; gap:7px; margin-top:9px; flex-wrap:wrap; align-items:center; }
+    .job-apply-btn {
+      font-size:0.7rem; font-weight:600; color:#fff;
+      background:linear-gradient(135deg,#7c3aed,#a78bfa);
+      text-decoration:none; border-radius:7px; padding:4px 12px;
+      display:inline-block; white-space:nowrap;
+      box-shadow:0 1px 6px rgba(109,40,217,.25);
+      transition: opacity .15s;
+    }
+    .job-apply-btn:hover { opacity:.85; }
+    .job-cl-btn {
+      font-size:0.7rem; color:var(--text2); border:1px solid var(--border);
+      border-radius:7px; padding:4px 10px; cursor:pointer;
+      display:inline-block; white-space:nowrap;
+      transition: background .15s;
+    }
+    .job-cl-btn:hover { background:var(--s2); }
 
     /* Search loading state */
     .search-loading {
@@ -875,13 +893,40 @@ function renderJobs(jobs) {
   jobs.slice(0, 20).forEach(j => {
     const card = document.createElement('div');
     card.className = 'job-card';
+
+    // URL-Button (öffnet direkt die Stelle)
+    const applyBtn = j.url
+      ? `<a class="job-apply-btn"
+            href="${escHtml(j.url)}"
+            target="_blank" rel="noopener noreferrer"
+            onclick="event.stopPropagation()"
+            title="${escHtml(j.url)}">🔗 Zur Stelle →</a>`
+      : '';
+
+    // Anschreiben-Button
+    const clTitle = escHtml(j.title || '').replace(/'/g, "\\'");
+    const clCo    = escHtml(j.company || '').replace(/'/g, "\\'");
+    const clLoc   = escHtml(j.location || '').replace(/'/g, "\\'");
+    const clBtn = `<span class="job-cl-btn"
+        onclick="event.stopPropagation();chatMsg('Erstelle Anschreiben für: ${clTitle} bei ${clCo} in ${clLoc}')">
+        ✍️ Anschreiben</span>`;
+
     card.innerHTML = `
-      <div class="job-title">${escHtml(j.title||'—')}</div>
-      <div class="job-meta">🏢 ${escHtml(j.company||'—')} ${j.location?'· 📍'+escHtml(j.location):''}</div>
-      ${j.description_snippet?`<div class="job-desc">${escHtml(j.description_snippet.slice(0,150))}…</div>`:''}
-      ${j.url?`<div class="job-link">🔗 ${escHtml(j.url.slice(0,40))}…</div>`:''}
+      <div class="job-title">${escHtml(j.title || '—')}</div>
+      <div class="job-meta">
+        🏢 ${escHtml(j.company || '—')}${j.location ? ' · 📍 ' + escHtml(j.location) : ''}
+      </div>
+      ${j.description_snippet
+        ? `<div class="job-desc">${escHtml(j.description_snippet.slice(0, 200))}…</div>`
+        : ''}
+      <div class="job-actions">${applyBtn}${clBtn}</div>
     `;
-    card.onclick = () => chatMsg(`Erstelle ein Anschreiben für: ${j.title} bei ${j.company||'dieser Firma'} (${j.location||''}).`);
+
+    // Karte klickt → Stelle in neuem Tab öffnen (wenn URL vorhanden)
+    card.onclick = () => {
+      if (j.url) window.open(j.url, '_blank', 'noopener,noreferrer');
+    };
+
     c.appendChild(card);
   });
 }
@@ -1027,36 +1072,76 @@ function analyzeCV(file) {
   addMsg(`📄 <b>${escHtml(file.name)}</b> wird analysiert…`, true, target);
   showTyping(target);
 
+  // Live-Stream-Vorschau im Profil-Bereich einblenden
+  const profileEl = document.getElementById('profile-content');
+  if (profileEl) {
+    profileEl.innerHTML = `
+      <div id="cv-stream-box"
+           style="background:var(--s2);border:1px solid var(--border);border-radius:10px;
+                  padding:12px;font-size:0.7rem;color:var(--muted);font-family:monospace;
+                  white-space:pre-wrap;line-height:1.45;max-height:240px;overflow:hidden;
+                  word-break:break-all;">⚙️ Analyse läuft…</div>`;
+  }
+
   const fd = new FormData();
   fd.append('chat_id', chat_id);
-  // Starlette nimmt UploadFile; Fieldname muss 'file' sein
   fd.append('file', file);
   fd.append('filename', file.name);
 
-  fetch('/api/jobqueen/cv/analyze', {
-    method: 'POST',
-    body: fd
-  })
-    .then(async (res) => {
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.error) {
-        throw new Error(data.error || ('HTTP ' + res.status));
-      }
-      return data;
-    })
-    .then((data) => {
-      removeTyping(target);
-      const profile = data.profile || {};
+  // Streaming-Endpoint nutzen
+  fetch('/api/jobqueen/cv/stream', { method: 'POST', body: fd })
+    .then(async res => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
 
-      addMsg('✅ <b>CV-Analyse abgeschlossen</b>. Profil wurde aktualisiert.', false, target);
-      // Profil-Tab updaten
-      renderProfile(profile);
-      // optional: in Profil-Tab springen
-      // setTab('profil',null);
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf      = '';
+      let rawJson  = '';
+      let done     = false;
+
+      while (!done) {
+        const { done: doneFlag, value } = await reader.read();
+        if (doneFlag) break;
+
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop(); // unvollständige Zeile aufheben
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let evt;
+          try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+
+          // Chunk: JSON wächst → Vorschau aktualisieren
+          if (evt.chunk !== undefined) {
+            rawJson += evt.chunk;
+            const box = document.getElementById('cv-stream-box');
+            if (box) {
+              // Zeige letzten Abschnitt des aufgebauten JSON
+              box.textContent = '⚙️ Analysiere…\n\n' + rawJson.slice(-320);
+            }
+          }
+
+          // Fertig: Profil rendern und Tab wechseln
+          if (evt.done && evt.profile) {
+            done = true;
+            removeTyping(target);
+            addMsg('✅ <b>CV-Analyse abgeschlossen.</b> Profil wurde aktualisiert.', false, target);
+            renderProfile(evt.profile);
+            // Profil-Tab aktivieren
+            setTab('profil', null);
+          }
+
+          if (evt.error) throw new Error(evt.error);
+        }
+      }
     })
-    .catch((e) => {
+    .catch(e => {
       removeTyping(target);
       addMsg('❌ CV-Analyse fehlgeschlagen: ' + e.message, false, target);
+      const profileEl2 = document.getElementById('profile-content');
+      if (profileEl2) profileEl2.innerHTML =
+        `<div style="color:var(--red);font-size:0.8rem;padding:12px;">❌ ${escHtml(e.message)}</div>`;
     });
 }
 
