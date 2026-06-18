@@ -1499,6 +1499,17 @@ async def jobqueen_jobs(request: Request):
                         jobs_fallback = parsed.get("jobs", [])
                     except Exception as _je:
                         logger.warning("jobqueen_jobs LLM-Fallback JSON-Parse Fehler: %s", _je)
+            # LLM-Fallback-Jobs auch in jobs_index speichern (für Excel-Export)
+            idx = jobqueen_state[chat_id].setdefault("jobs_index", {})
+            _now = datetime.now().isoformat()
+            jobqueen_state[chat_id].setdefault("query_history", []).append({"query": query, "at": _now})
+            for jb in jobs_fallback:
+                if not isinstance(jb, dict):
+                    continue
+                url_key = (jb.get("url") or "").strip()
+                id_key = str(jb.get("id") or "").strip()
+                key = url_key or id_key or f"llm-{len(idx)}"
+                idx[key] = jb
             return JSONResponse({"jobs": jobs_fallback})
 
         # region: default UK if nothing else; user can override via request
@@ -1718,6 +1729,103 @@ async def jobqueen_coverletters(request: Request):
 class CvAnalyzeRequest(BaseModel):
     chat_id: Optional[str] = None
     filename: Optional[str] = None
+
+
+@app.post("/api/jobqueen/cv/stream")
+async def jobqueen_cv_stream(request: Request):
+    """Streaming CV-Analyse via Server-Sent Events (SSE).
+    Liefert Chunks als SSE-Events: {'chunk': str} während Analyse,
+    {'done': True, 'profile': {...}} am Ende.
+    """
+    import re as _re_cvs
+    try:
+        form = await request.form()
+        chat_id = (form.get("chat_id") or "jobqueen").strip() or "jobqueen"
+
+        file = None
+        for _k, _v in form.items():
+            if hasattr(_v, "filename") and hasattr(_v, "read"):
+                file = _v
+                break
+        if file is None:
+            return JSONResponse({"error": "CV-Datei fehlt"}, status_code=400)
+
+        filename = getattr(file, "filename", None) or (form.get("filename") or "cv")
+        suffix = Path(filename).suffix.lower() or ".bin"
+        content_bytes = await file.read()
+
+        tmp_path = None
+        extracted_text = ""
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp_path = tmp.name
+                tmp.write(content_bytes)
+            from dv import extract_content
+            extracted_text = extract_content(tmp_path, max_chars=30000)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+        from bot_ai import generate_structured_json_stream
+
+        _cv_sys = (
+            "Du bist ein praeziser Lebenslauf-Analysator. "
+            "Antworte AUSSCHLIESSLICH mit gueltigem JSON. "
+            "Kein Fliesstext, keine Markdown-Codeblocks, kein ```json. "
+            "Starte direkt mit { und ende mit }."
+        )
+        _cv_usr = (
+            "Analysiere diesen Lebenslauf und gib strukturiertes JSON zurueck.\n\n"
+            'Schema: {"name": null, "skills": [], "languages": [], '
+            '"experience_years": 0, "experience_months": 0, '
+            '"experience_details": {"total_months": 0, "roles": [{"title": "", "company": "", "start": null, "end": null, "months": 0}]}, '
+            '"strengths": [{"strength": "", "evidence": "", "relevance": ""}], '
+            '"suggested_job_titles": [{"title": "", "reason": ""}], '
+            '"missing_info_questions": []}\n\n'
+            "Regeln: mind. 8 strengths mit konkretem Beleg, mind. 8 suggested_job_titles.\n\n"
+            f"Datei: {filename}\n\nEXTRAHIERTER TEXT:\n{extracted_text[:25000]}"
+        )
+
+        async def _sse_gen():
+            full_reply = ""
+            try:
+                async for tag, chunk in generate_structured_json_stream(_cv_sys, _cv_usr):
+                    if tag == "text":
+                        full_reply += chunk
+                        yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"
+                    elif tag == "done":
+                        profile = {}
+                        if full_reply:
+                            cleaned = _re_cvs.sub(r'```(?:json)?\s*|\s*```', '', full_reply).strip()
+                            s = cleaned.find('{')
+                            e = cleaned.rfind('}')
+                            if s != -1 and e != -1:
+                                try:
+                                    profile = json.loads(cleaned[s:e + 1])
+                                except Exception as _jp:
+                                    logger.warning("CV-Stream JSON-Parse: %s", _jp)
+                        from bot_state import jobqueen_state as _jqs2
+                        _jqs2.setdefault(chat_id, {})
+                        _jqs2[chat_id]["profile"] = profile
+                        _jqs2[chat_id]["profile_uploaded_filename"] = filename
+                        _jqs2[chat_id]["profile_last_analyzed_at"] = datetime.now().isoformat()
+                        yield f"data: {json.dumps({'done': True, 'profile': profile}, ensure_ascii=False)}\n\n"
+            except Exception as exc:
+                logger.error("CV-Stream Fehler: %s", exc, exc_info=True)
+                yield f"data: {json.dumps({'error': str(exc)[:200]})}\n\n"
+
+        return StreamingResponse(
+            _sse_gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    except Exception as e:
+        logger.error("jobqueen_cv_stream Fehler: %s", e, exc_info=True)
+        return JSONResponse({"error": str(e)[:500]}, status_code=500)
 
 
 @app.post("/api/jobqueen/cv/analyze")

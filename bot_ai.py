@@ -292,6 +292,60 @@ async def generate_structured_json(system_prompt: str, user_message: str) -> str
     return ""
 
 
+async def generate_structured_json_stream(system_prompt: str, user_message: str):
+    """Streaming-Version von generate_structured_json.
+    Yields (tag, content): tag='text' für Chunks, tag='done' mit vollständigem Text.
+    Kein Chat-History, kein Sandy-Kontext, temperature 0.1.
+    """
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+    model_list = [
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "llama3-70b-8192",
+    ]
+    full_reply = ""
+    success = False
+
+    for index, model_name in enumerate(model_list):
+        try:
+            stream = await asyncio.to_thread(
+                client.chat.completions.create,
+                model=model_name,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=4096,
+                top_p=0.9,
+                stream=True,
+            )
+            iterator = iter(stream)
+            while True:
+                chunk = await asyncio.to_thread(lambda it=iterator: next(it, None))
+                if chunk is None:
+                    break
+                delta = (chunk.choices[0].delta.content or "") if chunk.choices else ""
+                if delta:
+                    full_reply += delta
+                    yield ("text", delta)
+
+            if index > 0:
+                logger.info("✅ generate_structured_json_stream Fallback auf %s", model_name)
+            success = True
+            break
+
+        except Exception as exc:
+            error_str = str(exc).lower()
+            logger.warning("generate_structured_json_stream Modell %s: %s", model_name, exc)
+            if "503" in error_str or "over capacity" in error_str or "404" in error_str or "model not found" in error_str:
+                continue
+            break
+
+    if not success:
+        logger.error("generate_structured_json_stream: Alle Modelle fehlgeschlagen")
+    yield ("done", full_reply)
+
+
 async def generate_response_stream(chat_id: str, message: str):
     """Yields (tag, content) tuples: ('text', chunk) or ('done', full_text)."""
     history = await build_prompt_history(chat_id)

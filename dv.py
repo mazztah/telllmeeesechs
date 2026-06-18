@@ -139,11 +139,74 @@ def create_docx_from_text(text: str, title: str = "Generated.docx") -> BytesIO:
 
 
 def create_excel_from_data(data: list[list], columns: list[str], title: str = "Generated.xlsx") -> BytesIO:
-    df = pd.DataFrame(data, columns=columns)
-    buffer = BytesIO()
-    df.to_excel(buffer, index=False)
-    buffer.seek(0)
-    return buffer
+    """Erstellt ein formatiertes XLSX mit Hyperlinks für URL-Spalten."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Ergebnisse"
+        ws.freeze_panes = "A2"  # Header einfrieren
+
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill("solid", fgColor="6D28D9")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        url_font = Font(color="0563C1", underline="single", size=10)
+        cell_align = Alignment(vertical="top", wrap_text=True)
+        thin = Side(style="thin", color="E5E7EB")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        # Spaltenbreiten je nach Typ
+        col_widths = {
+            "URL": 55, "Beschreibung (Snippet)": 55, "Titel": 38,
+            "Firma": 28, "Ort": 22, "Job-ID": 14,
+        }
+
+        # Header-Zeile
+        for ci, col_name in enumerate(columns, 1):
+            cell = ws.cell(row=1, column=ci, value=col_name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = border
+            letter = get_column_letter(ci)
+            ws.column_dimensions[letter].width = col_widths.get(col_name, 20)
+
+        ws.row_dimensions[1].height = 22
+
+        # Datenzeilen
+        for ri, row in enumerate(data, 2):
+            for ci, val in enumerate(row, 1):
+                col_name = columns[ci - 1] if ci - 1 < len(columns) else ""
+                str_val = str(val) if val is not None else ""
+                cell = ws.cell(row=ri, column=ci, value=str_val)
+                cell.alignment = cell_align
+                cell.border = border
+                # URL → Hyperlink
+                if col_name == "URL" and str_val.startswith("http"):
+                    cell.hyperlink = str_val
+                    cell.value = str_val
+                    cell.font = url_font
+                else:
+                    cell.font = Font(size=10)
+                # Zebra-Streifen
+                if ri % 2 == 0:
+                    cell.fill = PatternFill("solid", fgColor="F5F3FF")
+
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer
+
+    except ImportError:
+        # Fallback auf pandas falls openpyxl fehlt
+        df = pd.DataFrame(data, columns=columns)
+        buffer = BytesIO()
+        df.to_excel(buffer, index=False, engine="openpyxl")
+        buffer.seek(0)
+        return buffer
 
 
 def create_chart_from_df(df: pd.DataFrame, title: str = "Chart") -> BytesIO:
