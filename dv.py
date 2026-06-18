@@ -232,3 +232,108 @@ def create_chart_from_df(df: pd.DataFrame, title: str = "Chart") -> BytesIO:
     img.save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
+
+
+def create_cv_excel(profile: dict) -> BytesIO:
+    """Exportiert CV-Analyse-Ergebnisse als formatiertes XLSX."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    thin = Side(style="thin", color="D1D5DB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    def hdr_cell(ws, row, col, value, fg="6D28D9"):
+        c = ws.cell(row=row, column=col, value=value)
+        c.font = Font(bold=True, color="FFFFFF", size=10)
+        c.fill = PatternFill("solid", fgColor=fg)
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = border
+        return c
+
+    def data_cell(ws, row, col, value, bold=False, color=None):
+        c = ws.cell(row=row, column=col, value=str(value) if value is not None else "")
+        c.font = Font(bold=bold, color=color or "1F2937", size=10)
+        c.alignment = Alignment(vertical="top", wrap_text=True)
+        c.border = border
+        if row % 2 == 0:
+            c.fill = PatternFill("solid", fgColor="F5F3FF")
+        return c
+
+    # ── Sheet 1: Übersicht ──────────────────────────────────────────
+    ws1 = wb.active
+    ws1.title = "Übersicht"
+    ws1.freeze_panes = "A2"
+    ws1.column_dimensions["A"].width = 28
+    ws1.column_dimensions["B"].width = 55
+
+    hdr_cell(ws1, 1, 1, "Feld")
+    hdr_cell(ws1, 1, 2, "Wert")
+
+    rows_overview = [
+        ("Name",            profile.get("name") or "—"),
+        ("Berufserfahrung", f"{profile.get('experience_years', 0)} Jahre {profile.get('experience_months', 0)} Monate"),
+        ("Skills",         " · ".join(profile.get("skills") or []) or "—"),
+        ("Sprachen",       " · ".join(profile.get("languages") or []) or "—"),
+    ]
+    for ri, (k, v) in enumerate(rows_overview, 2):
+        data_cell(ws1, ri, 1, k, bold=True)
+        data_cell(ws1, ri, 2, v)
+
+    # ── Sheet 2: Stärken ───────────────────────────────────────────
+    ws2 = wb.create_sheet("Stärken")
+    ws2.freeze_panes = "A2"
+    ws2.column_dimensions["A"].width = 30
+    ws2.column_dimensions["B"].width = 50
+    ws2.column_dimensions["C"].width = 45
+
+    hdr_cell(ws2, 1, 1, "Stärke")
+    hdr_cell(ws2, 1, 2, "Beleg aus dem Lebenslauf")
+    hdr_cell(ws2, 1, 3, "Relevanz")
+
+    for ri, s in enumerate(profile.get("strengths") or [], 2):
+        data_cell(ws2, ri, 1, s.get("strength") or "", bold=True)
+        data_cell(ws2, ri, 2, s.get("evidence") or "")
+        data_cell(ws2, ri, 3, s.get("relevance") or "")
+
+    # ── Sheet 3: Empfohlene Jobtitel ───────────────────────────────
+    ws3 = wb.create_sheet("Empfohlene Jobtitel")
+    ws3.freeze_panes = "A2"
+    ws3.column_dimensions["A"].width = 38
+    ws3.column_dimensions["B"].width = 60
+
+    hdr_cell(ws3, 1, 1, "Jobtitel")
+    hdr_cell(ws3, 1, 2, "Begründung")
+
+    for ri, jt in enumerate(profile.get("suggested_job_titles") or [], 2):
+        data_cell(ws3, ri, 1, jt.get("title") or "", bold=True)
+        data_cell(ws3, ri, 2, jt.get("reason") or "")
+
+    # ── Sheet 4: Berufserfahrung ────────────────────────────────────
+    ws4 = wb.create_sheet("Berufserfahrung")
+    ws4.freeze_panes = "A2"
+    ws4.column_dimensions["A"].width = 32
+    ws4.column_dimensions["B"].width = 30
+    ws4.column_dimensions["C"].width = 14
+    ws4.column_dimensions["D"].width = 14
+    ws4.column_dimensions["E"].width = 12
+
+    hdr_cell(ws4, 1, 1, "Position")
+    hdr_cell(ws4, 1, 2, "Unternehmen")
+    hdr_cell(ws4, 1, 3, "Von")
+    hdr_cell(ws4, 1, 4, "Bis")
+    hdr_cell(ws4, 1, 5, "Monate")
+
+    roles = (profile.get("experience_details") or {}).get("roles") or []
+    for ri, role in enumerate(roles, 2):
+        data_cell(ws4, ri, 1, role.get("title") or "", bold=True)
+        data_cell(ws4, ri, 2, role.get("company") or "")
+        data_cell(ws4, ri, 3, role.get("start") or "")
+        data_cell(ws4, ri, 4, role.get("end") or "")
+        data_cell(ws4, ri, 5, role.get("months") or "")
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf

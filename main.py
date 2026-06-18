@@ -1449,6 +1449,86 @@ async def webhook_endpoint(request: Request):
 # nutzt einen echten LLM-Chat über /api/jobqueen/chat.
 
 
+# ─── Bundesagentur für Arbeit – Echte Stellensuche (kein eigener Key) ─────────
+
+async def _ba_oauth_token(client: httpx.AsyncClient) -> str | None:
+    """OAuth-Token der Bundesagentur (öffentliche Browser-Credentials)."""
+    try:
+        resp = await client.post(
+            "https://rest.arbeitsagentur.de/oauth/token",
+            data={
+                "client_id":     "c003a37f-024f-462a-b36d-b001be4cd24a",
+                "client_secret": "32a39620-32b3-4307-9aa1-511527befebb",
+                "grant_type":    "client_credentials",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+        )
+        if resp.status_code == 200:
+            return resp.json().get("access_token")
+    except Exception as exc:
+        logger.debug("BA OAuth fehlgeschlagen: %s", exc)
+    return None
+
+
+async def search_jobs_bundesagentur(query: str, location: str = "", count: int = 20) -> list[dict]:
+    """
+    Echte Stellenangebote der Bundesagentur für Arbeit.
+    Kein eigener API-Key nötig – nutzt öffentliche Browser-OAuth-Credentials.
+    Deep-URL: https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}
+    """
+    async with httpx.AsyncClient(timeout=20.0, limits=HTTPX_LIMITS) as client:
+        token = await _ba_oauth_token(client)
+        if not token:
+            logger.warning("BA-API: Kein OAuth-Token erhalten")
+            return []
+
+        params: dict = {"was": query, "size": min(count, 25), "page": 0}
+        if location:
+            params["wo"] = location
+            params["umkreis"] = 50
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        }
+        try:
+            resp = await client.get(
+                "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs",
+                params=params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.warning("BA-API Jobs-Abruf fehlgeschlagen: %s", exc)
+            return []
+
+    data = resp.json()
+    jobs: list[dict] = []
+    for item in (data.get("stellenangebote") or []):
+        refnr = str(item.get("refnr") or "").strip()
+        if not refnr:
+            continue
+        deep_url = f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
+        ort_info = item.get("arbeitsort") or {}
+        plz = ort_info.get("plz") or ""
+        ort  = ort_info.get("ort") or ""
+        location_str = f"{plz} {ort}".strip() if plz else ort
+        pub_date = item.get("aktuelleVeroeffentlichungsdatum") or ""
+        jobs.append({
+            "id":                   refnr,
+            "title":                (item.get("titel") or "").strip(),
+            "company":              (item.get("arbeitgeber") or "").strip(),
+            "location":             location_str,
+            "url":                  deep_url,
+            "description_snippet":  (item.get("kurzbeschreibung") or "")[:400],
+            "date":                 pub_date,
+        })
+    logger.info("BA-API: %d Stellen für '%s'", len(jobs), query)
+    return jobs
+
+
 @app.post("/api/jobqueen/jobs")
 async def jobqueen_jobs(request: Request):
     """JobQueen Jobs Endpoint (Adzuna). Returns JSON for dynamic Kacheln."""
@@ -1471,46 +1551,23 @@ async def jobqueen_jobs(request: Request):
         ADZUNA_API_KEY = os.getenv("ADZUNA_API_KEY")
         ADZUNA_BASE = os.getenv("ADZUNA_BASE_URL", "https://api.adzuna.com/v1")
         if not ADZUNA_APP_ID or not ADZUNA_API_KEY:
-            # Fallback: LLM-Jobgenerierung ohne Sandy-Persona, mit JSON-only System-Prompt
-            from bot_ai import generate_structured_json
-            import re as _re_jobs
-            system_prompt = (
-                "Du bist ein JSON-Generator fuer Stellenanzeigen. "
-                "Antworte AUSSCHLIESSLICH mit gueltigem JSON, kein Fliesstext, keine Markdown-Codeblocks. "
-                'Nutze immer dieses Schema: '
-                '{"jobs": [{"id": "...", "title": "...", "company": "...", '
-                '"location": "...", "url": "...", "description_snippet": "..."}]}'
-            )
-            user_msg = (
-                f'Erstelle 8 realistische Stellenangebote fuer: "{query}" in Deutschland/DACH. '
-                "Nutze echte Firmennamen, realistische Orte, glaubwuerdige Beschreibungen und "
-                "plausible (aber fiktive) URLs im Format https://jobs.example.de/stelle-123. "
-                "Antwort: nur JSON, kein Text darum herum."
-            )
-            reply = await generate_structured_json(system_prompt, user_msg)
-            jobs_fallback = []
-            if reply:
-                cleaned = _re_jobs.sub(r'```(?:json)?\s*|\s*```', '', reply).strip()
-                start = cleaned.find('{')
-                end = cleaned.rfind('}')
-                if start != -1 and end != -1:
-                    try:
-                        parsed = json.loads(cleaned[start:end + 1])
-                        jobs_fallback = parsed.get("jobs", [])
-                    except Exception as _je:
-                        logger.warning("jobqueen_jobs LLM-Fallback JSON-Parse Fehler: %s", _je)
-            # LLM-Fallback-Jobs auch in jobs_index speichern (für Excel-Export)
+            # Bundesagentur für Arbeit API – echte Stellen, kein eigener Key nötig
+            location_hint = (data.get("location") or "").strip()
+            ba_jobs = await search_jobs_bundesagentur(query, location=location_hint, count=20)
+
             idx = jobqueen_state[chat_id].setdefault("jobs_index", {})
             _now = datetime.now().isoformat()
             jobqueen_state[chat_id].setdefault("query_history", []).append({"query": query, "at": _now})
-            for jb in jobs_fallback:
-                if not isinstance(jb, dict):
-                    continue
-                url_key = (jb.get("url") or "").strip()
-                id_key = str(jb.get("id") or "").strip()
-                key = url_key or id_key or f"llm-{len(idx)}"
+            for jb in ba_jobs:
+                key = jb.get("url") or jb.get("id") or f"ba-{len(idx)}"
                 idx[key] = jb
-            return JSONResponse({"jobs": jobs_fallback})
+
+            if ba_jobs:
+                return JSONResponse({"jobs": ba_jobs})
+
+            # Nur wenn BA-API komplett ausfällt → leere Liste + Hinweis
+            logger.error("BA-API und Adzuna nicht verfügbar. Keine Jobs geliefert.")
+            return JSONResponse({"jobs": [], "hint": "Bundesagentur-API nicht erreichbar. Bitte Adzuna-Keys setzen."})
 
         # region: default UK if nothing else; user can override via request
         country = (data.get("country") or os.getenv("ADZUNA_COUNTRY") or "de").lower()
@@ -1729,6 +1786,37 @@ async def jobqueen_coverletters(request: Request):
 class CvAnalyzeRequest(BaseModel):
     chat_id: Optional[str] = None
     filename: Optional[str] = None
+
+
+@app.post("/api/jobqueen/cv/excel")
+async def jobqueen_cv_excel(request: Request):
+    """Excel-Export der CV-Analyse. Erwartet JSON-Body: {chat_id, profile (optional)}."""
+    try:
+        data = await request.json()
+        chat_id = (data.get("chat_id") or "jobqueen").strip() or "jobqueen"
+
+        # Profil aus State holen ODER aus Request-Body
+        profile = data.get("profile")
+        if not profile:
+            from bot_state import jobqueen_state as _jqs_cv
+            profile = (_jqs_cv.get(chat_id) or {}).get("profile") or {}
+
+        if not profile:
+            return JSONResponse({"error": "Kein Profil gefunden. Bitte zuerst CV analysieren."}, status_code=400)
+
+        from dv import create_cv_excel
+        from starlette.responses import Response as _RawResp
+        buf = create_cv_excel(profile)
+        name = (profile.get("name") or "CV").replace(" ", "_")[:40]
+        filename = f"JobQueen_CV_{name}.xlsx"
+        return _RawResp(
+            content=buf.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as e:
+        logger.error("CV-Excel Fehler: %s", e, exc_info=True)
+        return JSONResponse({"error": str(e)[:400]}, status_code=500)
 
 
 @app.post("/api/jobqueen/cv/stream")
