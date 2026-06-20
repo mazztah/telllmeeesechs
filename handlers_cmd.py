@@ -81,7 +81,7 @@ _savecode_locks: dict[str, asyncio.Lock] = {}
 
 PUBLIC_APP_BASE_URL = os.getenv(
     "PUBLIC_APP_BASE_URL",
-    "https://huggyooo-telllmeeedrei-bot.hf.space"
+    "https://allweeelll-307619780865.europe-west3.run.app"
 ).rstrip("/")
 
 SCANNER_WEBAPP_URL = os.getenv(
