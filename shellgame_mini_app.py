@@ -26,7 +26,20 @@ HTML_TEMPLATE = TEMPLATE_PATH.read_text(encoding="utf-8") if TEMPLATE_PATH.exist
 # ── Score Persistenz ─────────────────────────────────────────────────────────
 # HF Spaces Support
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+except (PermissionError, OSError) as exc:
+    # "/data" ist nur auf Plattformen mit gemountetem Persistent Storage
+    # beschreibbar (z.B. HF Spaces). Auf Cloud Run, Render & Co. ohne Disk
+    # existiert "/data" nicht und kann vom non-root User nicht angelegt
+    # werden -> Fallback auf einen lokalen Ordner neben dem Code.
+    fallback_dir = Path(__file__).resolve().parent / "data"
+    logger.warning(
+        "DATA_DIR '%s' nicht beschreibbar (%s) – verwende Fallback '%s'",
+        DATA_DIR, exc, fallback_dir,
+    )
+    DATA_DIR = fallback_dir
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 SCORE_FILE = DATA_DIR / "shellgame_scores.json"
 

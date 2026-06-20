@@ -13,7 +13,20 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 VOICE_STORAGE_DIR = Path(os.getenv("DATA_DIR", "/data")) / "voiceclones"
-VOICE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    VOICE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+except (PermissionError, OSError) as exc:
+    # "/data" ist nur auf Plattformen mit gemountetem Persistent Storage
+    # beschreibbar (z.B. HF Spaces). Auf Cloud Run, Render & Co. ohne Disk
+    # existiert "/data" nicht und kann vom non-root User nicht angelegt
+    # werden -> Fallback auf einen lokalen Ordner neben dem Code.
+    fallback_dir = Path(__file__).resolve().parent / "data" / "voiceclones"
+    logger.warning(
+        "VOICE_STORAGE_DIR '%s' nicht beschreibbar (%s) – verwende Fallback '%s'",
+        VOICE_STORAGE_DIR, exc, fallback_dir,
+    )
+    VOICE_STORAGE_DIR = fallback_dir
+    VOICE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 VOICE_INDEX_FILE = VOICE_STORAGE_DIR / "voices.json"
 XTTS_MODEL_NAME = os.getenv("XTTS_MODEL_NAME", "tts_models/multilingual/multi-dataset/xtts_v2")
 MAX_SYNTHESIS_CHARS = int(os.getenv("VOICE_MAX_TEXT_CHARS", "1800"))
