@@ -7,8 +7,8 @@ import os
 logger = logging.getLogger(__name__)
 
 # Dynamische URL (funktioniert lokal + Render/Railway)
-BASE_URL = os.getenv("WEBHOOK_URL") or "https://allweeelll-307619780865.europe-west3.run.app/chess/" or os.getenv("RENDER_EXTERNAL_URL")
-CHESS_APP_URL = f"{BASE_URL.rstrip('/')}/chess/"
+BASE_URL = os.getenv("WEBHOOK_URL") or "https://allweeelll-307619780865.europe-west3.run.app/chess" or os.getenv("RENDER_EXTERNAL_URL")
+CHESS_APP_URL = f"{BASE_URL.rstrip('/')}/chess"
 
 async def cmd_chess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
