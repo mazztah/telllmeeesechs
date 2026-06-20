@@ -6,6 +6,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 user
+
+# WICHTIG: Verzeichnis VOR dem USER-Wechsel erstellen und chownen!
+RUN mkdir -p /home/user/app && chown user:user /home/user/app
+
 USER user
 WORKDIR /home/user/app
 
