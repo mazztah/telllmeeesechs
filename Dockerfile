@@ -11,7 +11,9 @@ WORKDIR /home/user/app
 
 ENV PATH="/home/user/.local/bin:$PATH"
 ENV DATA_DIR="/data"
-ENV PORT="7860"
+
+# WICHTIG: Port dynamisch von Cloud Run übernehmen
+ENV PORT=8080
 
 COPY --chown=user:user requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
@@ -19,7 +21,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY --chown=user:user . .
 
-EXPOSE 7860
+EXPOSE 8080
 
-# WICHTIG: Direkt uvicorn, KEIN gunicorn!
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 7860 --workers 1 --log-level info"]
+# Dynamischer Port!
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 1 --log-level info"]
