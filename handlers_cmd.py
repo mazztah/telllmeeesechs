@@ -89,6 +89,11 @@ SCANNER_WEBAPP_URL = os.getenv(
     f"{PUBLIC_APP_BASE_URL}/scanner"
 )
 
+MOOOST_URL = os.getenv(
+    "MOOOST_URL",
+    "https://mooost-307619780865.europe-west1.run.app"
+)
+
 # â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _new_temp_path(suffix: str) -> str:
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
@@ -271,12 +276,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     command_lines = "\n".join(f"? <code>/{cmd}</code>" for cmd in commands)
 
-    keyboard = [[
-        InlineKeyboardButton(
-            "📱 QR & Barcode Scanner öffnen",
-            web_app=WebAppInfo(url=SCANNER_WEBAPP_URL),
-        )
-    ]]
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "📱 QR & Barcode Scanner öffnen",
+                web_app=WebAppInfo(url=SCANNER_WEBAPP_URL),
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🚀 Mooost öffnen",
+                web_app=WebAppInfo(url=MOOOST_URL),
+            )
+        ],
+    ]
     row = []
     for cmd in commands:
         row.append(
@@ -344,6 +357,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
+async def cmd_mooost(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Öffnet Mooost als Telegram WebApp inline."""
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "🚀 Mooost öffnen",
+            web_app=WebAppInfo(url=MOOOST_URL),
+        )
+    ]])
+    await update.message.reply_text(
+        "Mooost starten:",
+        reply_markup=keyboard,
+    )
+
+
 async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     doc = update.message.document
