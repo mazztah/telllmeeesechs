@@ -500,10 +500,15 @@
   <!-- SEARCH: sticky on mobile, normal on desktop -->
   <div class="search-sticky" id="search-sticky">
     <div class="search-bar">
-      <div class="search-input-wrap">
+      <div class="search-input-wrap" style="flex:2">
         <span style="color:var(--muted);font-size:0.9rem;flex-shrink:0">🔍</span>
         <input id="main-search" type="text" inputmode="search" autocomplete="off"
-          placeholder="z.B. Immobilienkaufmann Hannover …">
+          placeholder="Berufsbezeichnung, z.B. Immobilienkaufmann …">
+      </div>
+      <div class="search-input-wrap" style="flex:1;min-width:90px;max-width:160px">
+        <span style="color:var(--muted);font-size:0.9rem;flex-shrink:0">📍</span>
+        <input id="location-search" type="text" inputmode="search" autocomplete="off"
+          placeholder="Ort oder PLZ">
       </div>
       <button class="search-run" onclick="doSearch()">Suchen</button>
     </div>
@@ -811,38 +816,45 @@ function chatMsg(text) {
 
 /* ─── SEARCH ────────────────────────────────────────────────────── */
 let lastQuery = '';
+let lastLocation = '';
 let lastJobs = [];
 
 async function doSearch() {
-  const q = document.getElementById('main-search').value.trim();
-  if (!q) return;
-  lastQuery = q;
-
-  // Show loading
-  const wrap = document.getElementById('jobs-container-wrap');
-  const container = document.getElementById('jobs-container');
-  const label = document.getElementById('results-label');
-  wrap.style.display = '';
-  container.innerHTML = '<div class="search-loading"><div class="spinner"></div>Suche auf 20+ Jobbörsen…</div>';
-  if (label) label.textContent = `Suchergebnisse für "${q}"`;
-
-  // Scroll to results on mobile
-  if (isMobile()) {
-    setTimeout(() => wrap.scrollIntoView({behavior:'smooth', block:'start'}), 100);
+  const q    = document.getElementById('main-search').value.trim();
+  const loc  = document.getElementById('location-search').value.trim();
+  if (!q) {
+    document.getElementById('main-search').focus();
+    return;
   }
+  lastQuery    = q;
+  lastLocation = loc;
+
+  const wrap      = document.getElementById('jobs-container-wrap');
+  const container = document.getElementById('jobs-container');
+  const label     = document.getElementById('results-label');
+  wrap.style.display = '';
+  const locLabel = loc ? ` in ${loc}` : '';
+  container.innerHTML = `<div class="search-loading"><div class="spinner"></div>Suche bei der Bundesagentur für Arbeit${locLabel}…</div>`;
+  if (label) label.textContent = `Suchergebnisse für „${q}"${locLabel}`;
+
+  if (isMobile()) setTimeout(() => wrap.scrollIntoView({behavior:'smooth', block:'start'}), 100);
 
   try {
-    // Try Adzuna jobs API
     const res = await fetch('/api/jobqueen/jobs', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({query:q, chat_id:'jobqueen', limit:20, page:1})
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        query:    q,
+        location: loc,
+        chat_id:  'jobqueen',
+        limit:    25,
+        page:     1
+      })
     });
     const data = await res.json();
 
-    // If API failed or returned error → fallback to chat
     if (!res.ok || data.error) {
-      throw new Error(data.error || 'Jobsuche API nicht verfügbar');
+      throw new Error(data.error || 'API-Fehler');
     }
 
     const jobs = data.jobs || [];
@@ -850,41 +862,49 @@ async function doSearch() {
 
     if (jobs.length > 0) {
       renderJobs(jobs);
-      addMsgBoth(`✅ <b>${jobs.length} Stellen</b> für „${q}" gefunden. Klicke eine Karte für ein Anschreiben.`, false);
-    } else {
-      throw new Error('Keine Treffer');
-    }
-
-  } catch (e) {
-    // ── FALLBACK: ask LLM via chat endpoint (always works) ──
-    console.warn('Jobs API fallback:', e.message);
-    container.innerHTML = '<div class="search-loading">KI-Suche läuft…</div>';
-    try {
-      const reply = await callChat(
-        `Suche Stellenangebote für: "${q}" in Deutschland/DACH. ` +
-        `Nenne 20 konkrete Beispiele mit Jobtitel, Firma, Ort und einer Kurzbeschreibung. ` +
-        `Formatiere als nummerierte Liste.`
+      const srcLabel = data.source === 'bundesagentur'
+        ? ' (Bundesagentur für Arbeit)'
+        : '';
+      addMsgBoth(
+        `✅ <b>${jobs.length} echte Stellen</b> für „${q}"${locLabel}${srcLabel} gefunden. ` +
+        `Klicke eine Karte für das Anschreiben.`, false
       );
-      container.innerHTML = '';
-      wrap.style.display = '';
-      // Show LLM result as a message card
-      const card = document.createElement('div');
-      card.className = 'job-card';
-      card.innerHTML = '<div class="job-title">🤖 KI-Suchergebnis</div>' +
-        '<div class="job-desc" style="white-space:pre-wrap;color:var(--text2)">' +
-        reply.replace(/<[^>]*>/g,'') + '</div>';
-      container.appendChild(card);
-      addMsgBoth(`🔍 KI-Suche für „<b>${q}</b>" abgeschlossen.`, false);
-    } catch (e2) {
-      container.innerHTML = '<div class="search-loading" style="color:var(--red)">❌ Suche fehlgeschlagen. Bitte erneut versuchen.</div>';
+    } else {
+      // Echter Leer-Zustand – kein LLM-Fallback, kein Dummy
+      const hint = data.hint || '';
+      container.innerHTML =
+        `<div class="search-loading" style="flex-direction:column;gap:12px;text-align:center;padding:32px 16px">` +
+        `<span style="font-size:2rem">🔍</span>` +
+        `<b>Keine Stellenangebote gefunden</b>` +
+        `<span style="color:var(--muted);font-size:0.82rem">` +
+        `Für „${escHtml(q)}"${locLabel ? ' in ' + escHtml(loc) : ''} wurden bei der Bundesagentur für Arbeit keine Treffer gefunden.` +
+        (hint ? `<br><i>${escHtml(hint)}</i>` : '') +
+        `<br><br>Tipp: Andere Schreibweise, weiteren Suchradius oder direkt eine Jobbörse unten verwenden.` +
+        `</span></div>`;
     }
+  } catch (e) {
+    console.error('doSearch Fehler:', e.message);
+    container.innerHTML =
+      `<div class="search-loading" style="flex-direction:column;gap:10px;text-align:center;padding:32px 16px">` +
+      `<span style="font-size:2rem">⚠️</span>` +
+      `<b>Suche momentan nicht erreichbar</b>` +
+      `<span style="color:var(--muted);font-size:0.82rem">` +
+      `Die Verbindung zur Bundesagentur für Arbeit konnte nicht hergestellt werden.<br>` +
+      `Bitte nutze die Jobbörsen-Links unten oder versuche es später erneut.` +
+      `</span>` +
+      `<button onclick="doSearch()" style="margin-top:8px;padding:8px 18px;background:var(--accent);color:#0f0f1a;border:none;border-radius:8px;font-size:0.82rem;font-weight:700;cursor:pointer">` +
+      `↺ Erneut versuchen</button>` +
+      `</div>`;
   }
 }
 
 function clearResults() {
   document.getElementById('jobs-container-wrap').style.display = 'none';
   document.getElementById('main-search').value = '';
-  lastJobs = [];
+  document.getElementById('location-search').value = '';
+  lastJobs     = [];
+  lastQuery    = '';
+  lastLocation = '';
 }
 
 function renderJobs(jobs) {
@@ -911,13 +931,26 @@ function renderJobs(jobs) {
         onclick="event.stopPropagation();chatMsg('Erstelle Anschreiben für: ${clTitle} bei ${clCo} in ${clLoc}')">
         ✍️ Anschreiben</span>`;
 
+    // Datum formatieren (YYYY-MM-DD → DD.MM.YYYY)
+    let dateLabel = '';
+    if (j.date) {
+      try {
+        const d = new Date(j.date);
+        dateLabel = ` · 📅 ${d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'})}`;
+      } catch(_) { dateLabel = ` · ${j.date}`; }
+    }
+    // Quelle-Badge
+    const sourceBadge = j.source
+      ? `<span style="font-size:0.7rem;padding:2px 6px;border-radius:6px;background:rgba(212,175,55,0.15);color:var(--accent);margin-left:6px">${escHtml(j.source)}</span>`
+      : '';
+
     card.innerHTML = `
-      <div class="job-title">${escHtml(j.title || '—')}</div>
+      <div class="job-title">${escHtml(j.title || '—')}${sourceBadge}</div>
       <div class="job-meta">
-        🏢 ${escHtml(j.company || '—')}${j.location ? ' · 📍 ' + escHtml(j.location) : ''}
+        🏢 ${escHtml(j.company || '—')}${j.location ? ' · 📍 ' + escHtml(j.location) : ''}${dateLabel}
       </div>
       ${j.description_snippet
-        ? `<div class="job-desc">${escHtml(j.description_snippet.slice(0, 200))}…</div>`
+        ? `<div class="job-desc">${escHtml(j.description_snippet.slice(0, 220))}…</div>`
         : ''}
       <div class="job-actions">${applyBtn}${clBtn}</div>
     `;
@@ -934,6 +967,9 @@ function renderJobs(jobs) {
 document.getElementById('main-search').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
 });
+document.getElementById('location-search').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
 
 function escHtml(s) {
   return String(s||'')
@@ -941,14 +977,46 @@ function escHtml(s) {
 }
 
 /* ─── PLATFORM SEARCH ───────────────────────────────────────────── */
+// Echte Suchanfragen-URLs für jede Jobbörse
+const PLATFORM_URLS = {
+  'Indeed':         (q, l) => `https://de.indeed.com/jobs?q=${enc(q)}${l ? '&l=' + enc(l) : ''}`,
+  'StepStone':      (q, l) => `https://www.stepstone.de/jobs/${enc(q)}${l ? '/' + enc(l) : ''}`,
+  'LinkedIn':       (q, l) => `https://www.linkedin.com/jobs/search/?keywords=${enc(q)}${l ? '&location=' + enc(l) : '&location=Deutschland'}`,
+  'XING':           (q, l) => `https://www.xing.com/jobs/search?term=${enc(q)}${l ? '&location=' + enc(l) : ''}`,
+  'Arbeitsagentur': (q, l) => `https://www.arbeitsagentur.de/jobsuche/suche?was=${enc(q)}${l ? '&wo=' + enc(l) : ''}`,
+  'Jobvector':      (q, l) => `https://www.jobvector.de/jobs/${enc(q)}/${l ? enc(l) + '/' : ''}`,
+  'Absolventa':     (q, l) => `https://www.absolventa.de/jobs?q=${enc(q)}${l ? '&location=' + enc(l) : ''}`,
+  'Yourfirm':       (q, l) => `https://www.yourfirm.de/stellenangebote/?q=${enc(q)}${l ? '&where=' + enc(l) : ''}`,
+  'Green Jobs':     (q, l) => `https://greenjobs.de/jobs/?search=${enc(q)}${l ? '&location=' + enc(l) : ''}`,
+  'Monster':        (q, l) => `https://www.monster.de/jobs/suche/?q=${enc(q)}${l ? '&where=' + enc(l) : ''}`,
+};
+
+function enc(s) { return encodeURIComponent(s || ''); }
+
 function platformSearch(name) {
-  const q = document.getElementById('main-search').value.trim();
-  if (q) {
-    chatMsg(`Suche "${q}" auf ${name}. Welche Stellen gibt es dort?`);
-  } else {
-    chatMsg(`Was kann ich auf ${name} suchen? Erkläre die Plattform kurz.`);
+  const q   = (document.getElementById('main-search').value || lastQuery || '').trim();
+  const loc = (document.getElementById('location-search').value || lastLocation || '').trim();
+
+  const urlFn = PLATFORM_URLS[name];
+  if (urlFn && q) {
+    // Direkt zur echten Plattform-Suchergebnisseite öffnen
+    window.open(urlFn(q, loc), '_blank', 'noopener,noreferrer');
+  } else if (urlFn) {
+    // Kein Suchbegriff: Plattform-Startseite öffnen
+    const baseUrls = {
+      'Indeed':         'https://de.indeed.com',
+      'StepStone':      'https://www.stepstone.de',
+      'LinkedIn':       'https://www.linkedin.com/jobs/',
+      'XING':           'https://www.xing.com/jobs',
+      'Arbeitsagentur': 'https://www.arbeitsagentur.de/jobsuche/',
+      'Jobvector':      'https://www.jobvector.de',
+      'Absolventa':     'https://www.absolventa.de',
+      'Yourfirm':       'https://www.yourfirm.de',
+      'Green Jobs':     'https://greenjobs.de',
+      'Monster':        'https://www.monster.de',
+    };
+    window.open(baseUrls[name] || '#', '_blank', 'noopener,noreferrer');
   }
-  if (isMobile()) openChat();
 }
 
 /* ─── EXPORT ────────────────────────────────────────────────────── */
