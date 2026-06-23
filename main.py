@@ -1453,57 +1453,139 @@ async def webhook_endpoint(request: Request):
 
 # ─── Bundesagentur für Arbeit – Echte Stellensuche (kein eigener Key) ─────────
 
-async def _ba_oauth_token(client: httpx.AsyncClient) -> str | None:
-    """OAuth-Token der Bundesagentur (öffentliche Browser-Credentials)."""
-    try:
-        resp = await client.post(
-            "https://rest.arbeitsagentur.de/oauth/token",
-            data={
-                "client_id":     "c003a37f-024f-462a-b36d-b001be4cd24a",
-                "client_secret": "32a39620-32b3-4307-9aa1-511527befebb",
-                "grant_type":    "client_credentials",
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded",
-                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-        )
-        if resp.status_code == 200:
-            return resp.json().get("access_token")
-    except Exception as exc:
-        logger.debug("BA OAuth fehlgeschlagen: %s", exc)
-    return None
+def _ba_parse_query(query: str, explicit_location: str = "") -> tuple[str, str]:
+    """
+    Trennt 'was' und 'wo' aus einer kombinierten Suchanfrage.
+    Beispiel: 'Python Entwickler Berlin' → ('Python Entwickler', 'Berlin')
+    Gibt (was, wo) zurück. explicit_location hat immer Vorrang.
+    """
+    if explicit_location:
+        return query.strip(), explicit_location.strip()
+
+    # Bekannte deutsche Städte / Bundesländer am Ende der Query
+    known_cities = [
+        "Berlin", "Hamburg", "München", "Köln", "Frankfurt", "Stuttgart", "Düsseldorf",
+        "Leipzig", "Dortmund", "Essen", "Bremen", "Dresden", "Hannover", "Nürnberg",
+        "Duisburg", "Bochum", "Wuppertal", "Bielefeld", "Bonn", "Münster", "Karlsruhe",
+        "Mannheim", "Augsburg", "Wiesbaden", "Gelsenkirchen", "Mönchengladbach",
+        "Braunschweig", "Kiel", "Chemnitz", "Aachen", "Halle", "Magdeburg", "Freiburg",
+        "Krefeld", "Lübeck", "Oberhausen", "Erfurt", "Mainz", "Rostock", "Kassel",
+        "Hagen", "Hamm", "Saarbrücken", "Mülheim", "Potsdam", "Ludwigshafen",
+        "Oldenburg", "Osnabrück", "Leverkusen", "Solingen", "Heidelberg", "Darmstadt",
+        "Regensburg", "Ingolstadt", "Würzburg", "Ulm", "Wolfsburg", "Heilbronn",
+        "Pforzheim", "Göttingen", "Offenbach", "Bottrop", "Recklinghausen", "Bremerhaven",
+        "Remscheid", "Fürth", "Reutlingen", "Koblenz", "Bergisch Gladbach", "Erlangen",
+        "Moers", "Siegen", "Hildesheim", "Salzgitter", "Cottbus", "Kaiserslautern",
+        "Trier", "Jena", "Gütersloh", "Gera", "Düren", "Iserlohn", "Schwerin",
+        "Deutschland", "Remote", "Homeoffice", "bundesweit", "ganz Deutschland",
+        # Österreich & Schweiz
+        "Wien", "Graz", "Linz", "Salzburg", "Innsbruck", "Zürich", "Bern", "Basel",
+        "Genf", "Lausanne",
+    ]
+
+    q_lower = query.strip().lower()
+    for city in known_cities:
+        city_lower = city.lower()
+        # Am Ende der Query: "Python Berlin" oder "Python in Berlin"
+        if q_lower.endswith(f" {city_lower}"):
+            was = query[: -(len(city) + 1)].strip()
+            return (was or query.strip()), city
+        if q_lower.endswith(f" in {city_lower}"):
+            was = query[: -(len(city) + 4)].strip()
+            return (was or query.strip()), city
+
+    # Kein Ort gefunden – gesamte Query als Berufsbezeichnung
+    return query.strip(), ""
 
 
 async def search_jobs_bundesagentur(query: str, location: str = "", count: int = 20) -> list[dict]:
     """
     Echte Stellenangebote der Bundesagentur für Arbeit.
-    Kein eigener API-Key nötig – nutzt öffentliche Browser-OAuth-Credentials.
+    Nutzt öffentlichen API-Key (kein eigener Key nötig).
+    Versucht zuerst X-API-Key, dann OAuth als Fallback.
     Deep-URL: https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}
     """
+    was, wo = _ba_parse_query(query, explicit_location=location)
+    logger.info("BA-API Suche: was='%s', wo='%s'", was, wo)
+
+    # Endpunkte in Prioritätsreihenfolge
+    ENDPOINTS = [
+        "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/app/jobs",
+        "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs",
+        "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs",
+    ]
+
+    # Methode 1: Simpler öffentlicher API-Key (bevorzugt, kein OAuth nötig)
+    headers_apikey = {
+        "X-API-Key":  "jobboerse-jobsuche",
+        "Accept":     "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    }
+
+    params: dict = {
+        "was":        was,
+        "size":       min(count, 25),
+        "page":       1,
+        "angebotsart": "1",
+        "pav":        "false",
+    }
+    if wo:
+        params["wo"]      = wo
+        params["umkreis"] = 50
+
     async with httpx.AsyncClient(timeout=20.0, limits=HTTPX_LIMITS) as client:
-        token = await _ba_oauth_token(client)
-        if not token:
-            logger.warning("BA-API: Kein OAuth-Token erhalten")
-            return []
+        # Versuche X-API-Key auf allen Endpunkten
+        resp = None
+        last_exc = None
+        for endpoint in ENDPOINTS:
+            try:
+                r = await client.get(endpoint, params=params, headers=headers_apikey)
+                if r.status_code == 200:
+                    resp = r
+                    logger.info("BA-API: Endpunkt OK: %s", endpoint)
+                    break
+                logger.debug("BA-API: %s → HTTP %d", endpoint, r.status_code)
+            except Exception as exc:
+                last_exc = exc
+                logger.debug("BA-API: %s → %s", endpoint, exc)
+                continue
 
-        params: dict = {"was": query, "size": min(count, 25), "page": 0}
-        if location:
-            params["wo"] = location
-            params["umkreis"] = 50
+        # Fallback: OAuth-Token
+        if resp is None:
+            logger.info("BA-API: X-API-Key fehlgeschlagen, versuche OAuth-Fallback")
+            try:
+                oauth_resp = await client.post(
+                    "https://rest.arbeitsagentur.de/oauth/token",
+                    data={
+                        "client_id":     "c003a37f-024f-462a-b36d-b001be4cd24a",
+                        "client_secret": "32a39620-32b3-4307-9aa1-511527befebb",
+                        "grant_type":    "client_credentials",
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded",
+                             "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                )
+                if oauth_resp.status_code == 200:
+                    token = oauth_resp.json().get("access_token")
+                    if token:
+                        headers_oauth = {
+                            "Authorization": f"Bearer {token}",
+                            "Accept":        "application/json",
+                            "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                        }
+                        for endpoint in ENDPOINTS:
+                            try:
+                                r = await client.get(endpoint, params=params, headers=headers_oauth)
+                                if r.status_code == 200:
+                                    resp = r
+                                    logger.info("BA-API OAuth-Fallback OK: %s", endpoint)
+                                    break
+                            except Exception:
+                                continue
+            except Exception as exc:
+                logger.warning("BA-API OAuth-Fallback fehlgeschlagen: %s", exc)
 
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        }
-        try:
-            resp = await client.get(
-                "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs",
-                params=params,
-                headers=headers,
-            )
-            resp.raise_for_status()
-        except Exception as exc:
-            logger.warning("BA-API Jobs-Abruf fehlgeschlagen: %s", exc)
+        if resp is None:
+            logger.warning("BA-API: Alle Endpunkte nicht erreichbar. Letzter Fehler: %s", last_exc)
             return []
 
     data = resp.json()
@@ -1512,22 +1594,24 @@ async def search_jobs_bundesagentur(query: str, location: str = "", count: int =
         refnr = str(item.get("refnr") or "").strip()
         if not refnr:
             continue
+        # Echte Deep-URL zur Stellenanzeige
         deep_url = f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
         ort_info = item.get("arbeitsort") or {}
-        plz = ort_info.get("plz") or ""
+        plz  = ort_info.get("plz") or ""
         ort  = ort_info.get("ort") or ""
         location_str = f"{plz} {ort}".strip() if plz else ort
         pub_date = item.get("aktuelleVeroeffentlichungsdatum") or ""
         jobs.append({
-            "id":                   refnr,
-            "title":                (item.get("titel") or "").strip(),
-            "company":              (item.get("arbeitgeber") or "").strip(),
-            "location":             location_str,
-            "url":                  deep_url,
-            "description_snippet":  (item.get("kurzbeschreibung") or "")[:400],
-            "date":                 pub_date,
+            "id":                  refnr,
+            "title":               (item.get("titel") or "").strip(),
+            "company":             (item.get("arbeitgeber") or "").strip(),
+            "location":            location_str,
+            "url":                 deep_url,
+            "description_snippet": (item.get("kurzbeschreibung") or "")[:400],
+            "date":                pub_date,
+            "source":              "Bundesagentur für Arbeit",
         })
-    logger.info("BA-API: %d Stellen für '%s'", len(jobs), query)
+    logger.info("BA-API: %d echte Stellen für '%s' in '%s'", len(jobs), was, wo or "DE")
     return jobs
 
 
@@ -1553,9 +1637,10 @@ async def jobqueen_jobs(request: Request):
         ADZUNA_API_KEY = os.getenv("ADZUNA_API_KEY")
         ADZUNA_BASE = os.getenv("ADZUNA_BASE_URL", "https://api.adzuna.com/v1")
         if not ADZUNA_APP_ID or not ADZUNA_API_KEY:
-            # Bundesagentur für Arbeit API – echte Stellen, kein eigener Key nötig
+            # ── Bundesagentur für Arbeit API – echte Stellen, kein eigener Key nötig ──
+            # Ort kann explizit im Body mitgeschickt werden ODER wird aus der Query geparst
             location_hint = (data.get("location") or "").strip()
-            ba_jobs = await search_jobs_bundesagentur(query, location=location_hint, count=20)
+            ba_jobs = await search_jobs_bundesagentur(query, location=location_hint, count=25)
 
             idx = jobqueen_state[chat_id].setdefault("jobs_index", {})
             _now = datetime.now().isoformat()
@@ -1565,11 +1650,16 @@ async def jobqueen_jobs(request: Request):
                 idx[key] = jb
 
             if ba_jobs:
-                return JSONResponse({"jobs": ba_jobs})
+                return JSONResponse({"jobs": ba_jobs, "total": len(ba_jobs), "source": "bundesagentur"})
 
-            # Nur wenn BA-API komplett ausfällt → leere Liste + Hinweis
-            logger.error("BA-API und Adzuna nicht verfügbar. Keine Jobs geliefert.")
-            return JSONResponse({"jobs": [], "hint": "Bundesagentur-API nicht erreichbar. Bitte Adzuna-Keys setzen."})
+            # BA-API nicht erreichbar → leere Liste zurückgeben, KEIN LLM-Fallback
+            logger.error("BA-API nicht erreichbar. Gebe leere Liste zurück (kein LLM-Fallback).")
+            return JSONResponse({
+                "jobs": [],
+                "total": 0,
+                "source": "bundesagentur",
+                "hint": "Bundesagentur-API momentan nicht erreichbar. Bitte Jobbörsen-Links nutzen oder es später erneut versuchen.",
+            })
 
         # region: default UK if nothing else; user can override via request
         country = (data.get("country") or os.getenv("ADZUNA_COUNTRY") or "de").lower()
