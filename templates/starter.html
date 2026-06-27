@@ -815,20 +815,15 @@ function chatMsg(text) {
 }
 
 /* ─── SEARCH ────────────────────────────────────────────────────── */
-let lastQuery = '';
+let lastQuery    = '';
 let lastLocation = '';
-let lastJobs = [];
-// Auswahlzustand (zurückgesetzt bei neuer Suche)
-// key: Job-Key (url oder id), value: Job-Objekt
-let selectedJobs = new Map();
-
+let lastJobs     = [];
+let allJobsIndex = {};   // key(url/id) → job – über alle Suchen kumuliert
+let queryHistory = [];   // [{query, platform, location}]
 
 async function doSearch() {
   const q    = document.getElementById('main-search').value.trim();
   const loc  = document.getElementById('location-search').value.trim();
-  // per letzter Suche: Auswahl zurücksetzen
-  selectedJobs = new Map();
-
   if (!q) {
     document.getElementById('main-search').focus();
     return;
@@ -866,15 +861,18 @@ async function doSearch() {
 
     const jobs = data.jobs || [];
     lastJobs = jobs;
+    // Globalen Index + History aktualisieren
+    jobs.forEach(j => { const k=(j.url||j.id||'').trim(); if(k) allJobsIndex[k]=j; });
+    queryHistory.push({ query: q, platform: 'Bundesagentur für Arbeit', location: loc });
 
     if (jobs.length > 0) {
-      renderJobs(jobs);
+      renderJobs(jobs, 'Bundesagentur für Arbeit');
       const srcLabel = data.source === 'bundesagentur'
         ? ' (Bundesagentur für Arbeit)'
         : '';
       addMsgBoth(
         `✅ <b>${jobs.length} echte Stellen</b> für „${q}"${locLabel}${srcLabel} gefunden. ` +
-        `Klicke eine Karte für das Anschreiben.`, false
+        `Haken setzen = in Excel aufnehmen, dann 📤 Export klicken.`, false
       );
     } else {
       // Echter Leer-Zustand – kein LLM-Fallback, kein Dummy
@@ -912,88 +910,111 @@ function clearResults() {
   lastJobs     = [];
   lastQuery    = '';
   lastLocation = '';
-  selectedJobs = new Map();
+  allJobsIndex = {};
+  queryHistory = [];
+  const tb = document.getElementById('job-select-toolbar');
+  if (tb) tb.remove();
+  const cb = document.getElementById('export-counter-badge');
+  if (cb) cb.remove();
 }
 
+/* ─── DATE AGE LABEL ──────────────────────────────────────────── */
+function dateAgeLabel(s) {
+  if (!s) return '';
+  try {
+    const d   = new Date(s.split('T')[0]);
+    const now = new Date();
+    const df  = Math.round((now - d) / 86400000);
+    if (df <= 0)  return '📅 Heute';
+    if (df === 1) return '📅 Gestern';
+    if (df <= 7)  return `📅 vor ${df} Tagen`;
+    if (df <= 30) return `📅 vor ${Math.round(df/7)} Woche(n)`;
+    return `📅 ${d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'})}`;
+  } catch(_) { return s; }
+}
 
-function renderJobs(jobs) {
+function selectAllJobs(state) {
+  document.querySelectorAll('.job-select-cb').forEach(cb => cb.checked = state);
+  updateExportCounter();
+}
+
+function updateExportCounter() {
+  const chk   = document.querySelectorAll('.job-select-cb:checked').length;
+  const total = document.querySelectorAll('.job-select-cb').length;
+  const btn   = document.getElementById('export-counter-badge');
+  if (!btn) return;
+  if (chk > 0) {
+    btn.textContent    = `📤 ${chk} von ${total} exportieren`;
+    btn.style.color    = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+  } else {
+    btn.textContent    = `📤 Export (${total})`;
+    btn.style.color    = 'var(--muted)';
+    btn.style.borderColor = 'var(--border)';
+  }
+}
+
+function renderJobs(jobs, sourceName) {
   const c = document.getElementById('jobs-container');
-  c.innerHTML = '';
-  jobs.slice(0, 20).forEach(j => {
+
+  // Toolbar einmalig erzeugen
+  if (!document.getElementById('job-select-toolbar')) {
+    const tb = document.createElement('div');
+    tb.id = 'job-select-toolbar';
+    tb.style.cssText = 'display:flex;gap:8px;align-items:center;padding:6px 0 10px;'
+      + 'flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:8px';
+    tb.innerHTML =
+      '<span style="font-size:0.78rem;color:var(--muted);font-weight:600">✔ Auswahl für Excel:</span>'
+      + '<button onclick="selectAllJobs(true)" style="font-size:0.74rem;padding:3px 10px;border:1px solid var(--accent);border-radius:6px;background:transparent;color:var(--accent);cursor:pointer">✅ Alle</button>'
+      + '<button onclick="selectAllJobs(false)" style="font-size:0.74rem;padding:3px 10px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--muted);cursor:pointer">☐ Keine</button>'
+      + '<span id="export-counter-badge" onclick="doExport()" style="margin-left:auto;font-size:0.74rem;padding:4px 14px;border-radius:8px;background:var(--s2);border:1px solid var(--border);color:var(--muted);cursor:pointer;font-weight:700;transition:all .2s">📤 Export</span>';
+    c.parentElement.insertBefore(tb, c);
+  }
+
+  jobs.slice(0, 25).forEach(j => {
+    const jKey = (j.url || j.id || Math.random().toString(36).slice(2)).trim();
+    // Duplikat-Schutz
+    if (document.querySelector('[data-job-key="' + CSS.escape(jKey) + '"]')) return;
+    allJobsIndex[jKey] = j;
+
     const card = document.createElement('div');
     card.className = 'job-card';
-    // for UI feedback
-    card.setAttribute('data-jobkey', (j.url || j.id || j.title || '').toString().trim());
+    card.setAttribute('data-job-key', jKey);
+    card.style.position = 'relative';
 
+    const src    = escHtml(j.source || sourceName || '');
+    const badge  = src ? `<span style="font-size:0.68rem;padding:2px 6px;border-radius:5px;background:rgba(212,175,55,0.14);color:var(--accent);margin-left:6px;white-space:nowrap">${src}</span>` : '';
+    const dAge   = j.date ? ' · ' + dateAgeLabel(j.date) : '';
 
-    const jobKey = (j.url || j.id || j.title || '')
-      .toString().trim();
-
-    // Checkbox (Multiple Choice)
-    const checked = selectedJobs.has(jobKey) ? 'checked' : '';
-    const selectToggle = `toggleJobSelect('${escHtml(jobKey)}', ${jobKey ? 'true' : 'false'})`;
-
-    const cbHtml = `
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
-        <input type="checkbox" ${checked}
-          onclick="event.stopPropagation();toggleJobSelect('${escHtml(jobKey)}')">
-        <span style="font-size:0.72rem;color:var(--text2)">Auswählen</span>
-      </label>`;
-
-    // URL-Button (öffnet direkt die Stelle)
     const applyBtn = j.url
-      ? `<a class="job-apply-btn"
-            href="${escHtml(j.url)}"
-            target="_blank" rel="noopener noreferrer"
-            onclick="event.stopPropagation();">🔗 Zur Stelle →</a>`
+      ? `<a class="job-apply-btn" href="${escHtml(j.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">🔗 Zur Stelle →</a>`
       : '';
+    const clTitle = escHtml(j.title||'').replace(/'/g,"\\\\'");
+    const clCo    = escHtml(j.company||'').replace(/'/g,"\\\\'");
+    const clLoc   = escHtml(j.location||'').replace(/'/g,"\\\\'");
+    const clBtn   = `<span class="job-cl-btn" onclick="event.stopPropagation();chatMsg('Erstelle Anschreiben für: ${clTitle} bei ${clCo} in ${clLoc}')">&#9997;&#65039; Anschreiben</span>`;
 
+    const safeKey = jKey.replace(/"/g,'&quot;');
+    const cbId    = 'cb_' + jKey.replace(/[^a-z0-9]/gi,'_').slice(0,28);
+    const cbHtml  =
+      `<label class="job-cb-wrap" onclick="event.stopPropagation()" title="In Excel aufnehmen" `
+      + `style="position:absolute;top:10px;right:10px;z-index:3;cursor:pointer;`
+      + `display:flex;align-items:center;gap:4px;background:var(--s2);`
+      + `border-radius:6px;padding:3px 7px;border:1px solid var(--border)">`
+      + `<input type="checkbox" id="${cbId}" class="job-select-cb" data-job-key="${safeKey}" checked `
+      + `onchange="updateExportCounter()" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">`
+      + `<span style="font-size:0.67rem;color:var(--muted)">Excel</span></label>`;
 
-    // Anschreiben-Button
-    const clTitle = escHtml(j.title || '').replace(/'/g, "\\'");
-    const clCo    = escHtml(j.company || '').replace(/'/g, "\\'");
-    const clLoc   = escHtml(j.location || '').replace(/'/g, "\\'");
-    const clBtn = `<span class="job-cl-btn"
-        onclick="event.stopPropagation();chatMsg('Erstelle Anschreiben für: ${clTitle} bei ${clCo} in ${clLoc}')">
-        ✍️ Anschreiben</span>`;
+    card.innerHTML = cbHtml
+      + `<div class="job-title" style="padding-right:78px">${escHtml(j.title||'—')}${badge}</div>`
+      + `<div class="job-meta">🏢 ${escHtml(j.company||'—')}${j.location ? ' · 📍 ' + escHtml(j.location) : ''}${dAge}</div>`
+      + (j.description_snippet ? `<div class="job-desc">${escHtml(j.description_snippet.slice(0,200))}…</div>` : '')
+      + `<div class="job-actions">${applyBtn}${clBtn}</div>`;
 
-    // Datum formatieren (YYYY-MM-DD → DD.MM.YYYY)
-    let dateLabel = '';
-    if (j.date) {
-      try {
-        const d = new Date(j.date);
-        dateLabel = ` · 📅 ${d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'})}`;
-      } catch(_) { dateLabel = ` · ${j.date}`; }
-    }
-    // Quelle-Badge
-    const sourceBadge = j.source
-      ? `<span style="font-size:0.7rem;padding:2px 6px;border-radius:6px;background:rgba(212,175,55,0.15);color:var(--accent);margin-left:6px">${escHtml(j.source)}</span>`
-      : '';
-
-    card.innerHTML = `
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
-        <div>
-          <div class="job-title">${escHtml(j.title || '—')}${sourceBadge}</div>
-          <div class="job-meta">
-            🏢 ${escHtml(j.company || '—')}${j.location ? ' · 📍 ' + escHtml(j.location) : ''}${dateLabel}
-          </div>
-        </div>
-        ${cbHtml}
-      </div>
-      ${j.description_snippet
-        ? `<div class="job-desc">${escHtml(j.description_snippet.slice(0, 220))}…</div>`
-        : ''}
-      <div class="job-actions">${applyBtn}${clBtn}</div>
-    `;
-
-
-    // Karte klickt → Stelle in neuem Tab öffnen (wenn URL vorhanden)
-    card.onclick = () => {
-      if (j.url) window.open(j.url, '_blank', 'noopener,noreferrer');
-    };
-
+    card.onclick = () => { if (j.url) window.open(j.url,'_blank','noopener,noreferrer'); };
     c.appendChild(card);
   });
+  updateExportCounter();
 }
 
 document.getElementById('main-search').addEventListener('keydown', e => {
@@ -1008,100 +1029,164 @@ function escHtml(s) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-/* ─── PLATFORM SEARCH ───────────────────────────────────────────── */
-// Echte Suchanfragen-URLs für jede Jobbörse
+/* ─── PLATFORM SEARCH ─────────────────────────────── */
 const PLATFORM_URLS = {
-  'Indeed':         (q, l) => `https://de.indeed.com/jobs?q=${enc(q)}${l ? '&l=' + enc(l) : ''}`,
-  'StepStone':      (q, l) => `https://www.stepstone.de/jobs/${enc(q)}${l ? '/' + enc(l) : ''}`,
-  'LinkedIn':       (q, l) => `https://www.linkedin.com/jobs/search/?keywords=${enc(q)}${l ? '&location=' + enc(l) : '&location=Deutschland'}`,
-  'XING':           (q, l) => `https://www.xing.com/jobs/search?term=${enc(q)}${l ? '&location=' + enc(l) : ''}`,
-  'Arbeitsagentur': (q, l) => `https://www.arbeitsagentur.de/jobsuche/suche?was=${enc(q)}${l ? '&wo=' + enc(l) : ''}`,
-  'Jobvector':      (q, l) => `https://www.jobvector.de/jobs/${enc(q)}/${l ? enc(l) + '/' : ''}`,
-  'Absolventa':     (q, l) => `https://www.absolventa.de/jobs?q=${enc(q)}${l ? '&location=' + enc(l) : ''}`,
-  'Yourfirm':       (q, l) => `https://www.yourfirm.de/stellenangebote/?q=${enc(q)}${l ? '&where=' + enc(l) : ''}`,
-  'Green Jobs':     (q, l) => `https://greenjobs.de/jobs/?search=${enc(q)}${l ? '&location=' + enc(l) : ''}`,
-  'Monster':        (q, l) => `https://www.monster.de/jobs/suche/?q=${enc(q)}${l ? '&where=' + enc(l) : ''}`,
+  'Indeed':         (q,l) => `https://de.indeed.com/jobs?q=${enc(q)}${l?'&l='+enc(l):''}`,
+  'StepStone':      (q,l) => `https://www.stepstone.de/jobs/${enc(q)}${l?'/'+enc(l):''}`,
+  'LinkedIn':       (q,l) => `https://www.linkedin.com/jobs/search/?keywords=${enc(q)}${l?'&location='+enc(l):'&location=Deutschland'}`,
+  'XING':           (q,l) => `https://www.xing.com/jobs/search?term=${enc(q)}${l?'&location='+enc(l):''}`,
+  'Arbeitsagentur': (q,l) => `https://www.arbeitsagentur.de/jobsuche/suche?was=${enc(q)}${l?'&wo='+enc(l):''}`,
+  'Jobvector':      (q,l) => `https://www.jobvector.de/jobs/${enc(q)}/${l?enc(l)+'/':''}`,
+  'Absolventa':     (q,l) => `https://www.absolventa.de/jobs?q=${enc(q)}${l?'&location='+enc(l):''}`,
+  'Yourfirm':       (q,l) => `https://www.yourfirm.de/stellenangebote/?q=${enc(q)}${l?'&where='+enc(l):''}`,
+  'Green Jobs':     (q,l) => `https://greenjobs.de/jobs/?search=${enc(q)}${l?'&location='+enc(l):''}`,
+  'Monster':        (q,l) => `https://www.monster.de/jobs/suche/?q=${enc(q)}${l?'&where='+enc(l):''}`,
 };
+function enc(s) { return encodeURIComponent(s||''); }
 
-function enc(s) { return encodeURIComponent(s || ''); }
-
-function platformSearch(name) {
+async function platformSearch(name) {
   const q   = (document.getElementById('main-search').value || lastQuery || '').trim();
   const loc = (document.getElementById('location-search').value || lastLocation || '').trim();
 
-  const urlFn = PLATFORM_URLS[name];
-  if (urlFn && q) {
-    // Direkt zur echten Plattform-Suchergebnisseite öffnen
-    window.open(urlFn(q, loc), '_blank', 'noopener,noreferrer');
-  } else if (urlFn) {
-    // Kein Suchbegriff: Plattform-Startseite öffnen
-    const baseUrls = {
-      'Indeed':         'https://de.indeed.com',
-      'StepStone':      'https://www.stepstone.de',
-      'LinkedIn':       'https://www.linkedin.com/jobs/',
-      'XING':           'https://www.xing.com/jobs',
-      'Arbeitsagentur': 'https://www.arbeitsagentur.de/jobsuche/',
-      'Jobvector':      'https://www.jobvector.de',
-      'Absolventa':     'https://www.absolventa.de',
-      'Yourfirm':       'https://www.yourfirm.de',
-      'Green Jobs':     'https://greenjobs.de',
-      'Monster':        'https://www.monster.de',
-    };
-    window.open(baseUrls[name] || '#', '_blank', 'noopener,noreferrer');
-  }
-}
-
-/* ─── EXPORT ────────────────────────────────────────────────────── */
-function toggleJobSelect(jobKey) {
-  if (!jobKey) return;
-
-  const currentlySelected = selectedJobs.has(jobKey);
-  if (currentlySelected) {
-    selectedJobs.delete(jobKey);
-  } else {
-    // find job object in lastJobs
-    const jb = (lastJobs || []).find(x => (x.url || x.id || x.title || '').toString().trim() === jobKey);
-    if (jb) selectedJobs.set(jobKey, jb);
-  }
-
-  // small UI feedback via title color
-  const card = document.querySelector(`[data-jobkey="${CSS.escape(jobKey)}"]`);
-  if (card) {
-    card.style.borderColor = selectedJobs.has(jobKey) ? 'rgba(167,139,250,0.7)' : '';
-  }
-}
-
-
-async function doExport() {
-  const q = document.getElementById('main-search').value.trim() || lastQuery;
   if (!q) {
-
-    chatMsg('Für den Excel-Export bitte zuerst eine Suche starten.');
+    addMsgBoth(`⚠️ Bitte zuerst einen Suchbegriff eingeben, dann auf <b>${escHtml(name)}</b> klicken.`, false);
     if (isMobile()) openChat();
     return;
   }
-  addMsgBoth('📤 Erstelle Excel-Export…', false);
-  try {
-    const selected = Array.from(selectedJobs.values());
-    const exportJobs = selected.length ? selected : lastJobs;
 
+  lastQuery    = q;
+  lastLocation = loc;
+  queryHistory.push({ query: q, platform: name, location: loc });
+
+  const wrap      = document.getElementById('jobs-container-wrap');
+  const container = document.getElementById('jobs-container');
+  const label     = document.getElementById('results-label');
+  wrap.style.display = '';
+  const locLabel = loc ? ` in ${loc}` : '';
+  container.innerHTML = `<div class="search-loading"><div class="spinner"></div>Suche bei <b>${escHtml(name)}</b>${locLabel}…</div>`;
+  if (label) label.textContent = `${name}: „${q}“${locLabel}`;
+  if (isMobile()) setTimeout(() => wrap.scrollIntoView({behavior:'smooth',block:'start'}), 100);
+
+  try {
+    const res  = await fetch('/api/jobqueen/platform-jobs', {
+      method:  'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ query:q, location:loc, platform:name, chat_id:'jobqueen' })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'API-Fehler');
+
+    const jobs = data.jobs || [];
+    lastJobs   = jobs;
+    jobs.forEach(j => { const k=(j.url||j.id||'').trim(); if(k) allJobsIndex[k]=j; });
+
+    if (jobs.length > 0) {
+      renderJobs(jobs, name);
+      addMsgBoth(
+        `✅ <b>${jobs.length} Stellen</b> für „${escHtml(q)}“${locLabel} bei <b>${escHtml(name)}</b> gefunden. ` +
+        `Haken = in Excel aufnehmen, dann 📤 Export klicken.`, false
+      );
+    } else {
+      const urlFn = PLATFORM_URLS[name];
+      container.innerHTML =
+        `<div class="search-loading" style="flex-direction:column;gap:12px;text-align:center;padding:32px 16px">`
+        + `<span style="font-size:2rem">🔍</span>`
+        + `<b>Keine Stellen bei ${escHtml(name)} gefunden</b>`
+        + (urlFn
+          ? `<button onclick="window.open(PLATFORM_URLS['${name}'](lastQuery,lastLocation),'_blank','noopener')" `
+            + `style="margin-top:8px;padding:8px 18px;background:var(--accent);color:#0f0f1a;border:none;border-radius:8px;font-size:0.82rem;font-weight:700;cursor:pointer">`
+            + `🔗 Direkt auf ${escHtml(name)} suchen</button>` : '')
+        + `</div>`;
+    }
+  } catch(e) {
+    console.error('platformSearch:', e.message);
+    const urlFn = PLATFORM_URLS[name];
+    container.innerHTML =
+      `<div class="search-loading" style="flex-direction:column;gap:10px;text-align:center;padding:32px 16px">`
+      + `<span style="font-size:2rem">⚠️</span>`
+      + `<b>API-Suche für ${escHtml(name)} nicht verfügbar</b>`
+      + `<span style="color:var(--muted);font-size:0.82rem">Du kannst direkt auf der Plattform suchen:</span>`
+      + (urlFn
+        ? `<button onclick="window.open(PLATFORM_URLS['${name}'](lastQuery,lastLocation),'_blank','noopener')" `
+          + `style="margin-top:8px;padding:8px 18px;background:var(--accent);color:#0f0f1a;border:none;border-radius:8px;font-size:0.82rem;font-weight:700;cursor:pointer">`
+          + `🔗 ${escHtml(name)} öffnen</button>` : '')
+      + `</div>`;
+  }
+}
+
+/* ─── EXPORT ──────────────────────────────────── */
+async function doExport() {
+  const q = (document.getElementById('main-search').value || lastQuery || '').trim();
+  if (!q && Object.keys(allJobsIndex).length === 0) {
+    addMsgBoth('⚠️ Bitte zuerst nach Jobs suchen, dann exportieren.', false);
+    if (isMobile()) openChat();
+    return;
+  }
+
+  // Ausgewählte Keys sammeln
+  const selectedIds = [];
+  document.querySelectorAll('.job-select-cb:checked').forEach(cb => {
+    selectedIds.push(cb.getAttribute('data-job-key'));
+  });
+
+  const useAll     = selectedIds.length === 0;
+  const exportJobs = useAll
+    ? Object.values(allJobsIndex)
+    : selectedIds.map(k => allJobsIndex[k]).filter(Boolean);
+
+  if (exportJobs.length === 0) {
+    addMsgBoth('⚠️ Keine Jobs zum Exportieren. Bitte zuerst suchen.', false);
+    return;
+  }
+
+  const lbl = useAll ? `allen ${exportJobs.length}` : `${exportJobs.length} ausgewählten`;
+  addMsgBoth(`📤 Erstelle Excel mit ${lbl} Jobs…`, false);
+
+  try {
     const res = await fetch('/api/jobqueen/excel', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({query:q, chat_id:'jobqueen', jobs:exportJobs})
+      method:  'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        query:        q || 'Jobsuche',
+        chat_id:      'jobqueen',
+        jobs:         exportJobs,
+        selected_ids: useAll ? null : selectedIds,
+        all_queries:  [...new Set(queryHistory.map(r=>r.query))],
+      })
     });
 
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${res.status}`);
+    }
 
-    if (!res.ok) throw new Error('HTTP ' + res.status);
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    if (blob.size < 200) {
+      const txt = await blob.text().catch(() => '');
+      throw new Error('Server-Fehler: ' + txt.slice(0, 120));
+    }
+
+    const today  = new Date().toISOString().split('T')[0];
+    const fname  = `JobQueen_Export_${today}.xlsx`;
+    const bUrl   = URL.createObjectURL(new Blob([blob], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    }));
     const a = document.createElement('a');
-    a.href = url; a.download = 'JobQueen_Export.xlsx';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-    addMsgBoth('✅ Excel-Export heruntergeladen!', false);
-  } catch (e) {
-    addMsgBoth('❌ Export fehlgeschlagen: ' + e.message, false);
+    a.style.display = 'none';
+    a.href     = bUrl;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(bUrl); }, 400);
+
+    const qSet = [...new Set(queryHistory.map(r=>r.query))];
+    addMsgBoth(
+      `✅ <b>Excel heruntergeladen</b> – ${exportJobs.length} Stellen aus ${qSet.length} Suchanfrage(n).<br>`
+      + `📎 Datei: <code>${fname}</code>`, false
+    );
+  } catch(e) {
+    addMsgBoth(`❌ Export fehlgeschlagen: ${e.message}`, false);
+    console.error('Export error:', e);
   }
 }
 
