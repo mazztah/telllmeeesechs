@@ -23,7 +23,7 @@ HTTPX_TIMEOUT = httpx.Timeout(
     write=10.0,
     pool=10.0,
 )
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any
 
@@ -1523,11 +1523,12 @@ async def search_jobs_bundesagentur(query: str, location: str = "", count: int =
     }
 
     params: dict = {
-        "was":        was,
-        "size":       min(count, 25),
-        "page":       1,
-        "angebotsart": "1",
-        "pav":        "false",
+        "was":                 was,
+        "size":                min(count, 25),
+        "page":                1,
+        "angebotsart":         "1",
+        "pav":                 "false",
+        "veroeffentlichtseit": 30,   # max. 30 Tage alte Angebote
     }
     if wo:
         params["wo"]      = wo
@@ -1613,6 +1614,147 @@ async def search_jobs_bundesagentur(query: str, location: str = "", count: int =
         })
     logger.info("BA-API: %d echte Stellen für '%s' in '%s'", len(jobs), was, wo or "DE")
     return jobs
+
+
+
+
+# ─── Plattform-Job-Suche (SerpAPI Google Jobs) ────────────────────────────────
+
+async def search_jobs_platform(query: str, location: str = "", platform: str = "all", count: int = 25) -> list[dict]:
+    """
+    Holt Stellen von externen Plattformen via SerpAPI Google Jobs.
+    Filtert automatisch auf max. 30 Tage alte Angebote.
+    Fallback: Bundesagentur für Arbeit.
+    """
+    from search import has_valid_serpapi_key, _get_serpapi_key
+
+    # Bundesagentur hat eigene API
+    if platform == "Arbeitsagentur":
+        jobs = await search_jobs_bundesagentur(query, location=location, count=count)
+        for j in jobs:
+            j["source"] = "Bundesagentur für Arbeit"
+        return jobs
+
+    SITE_MAP = {
+        "Indeed":     "site:de.indeed.com",
+        "StepStone":  "site:stepstone.de",
+        "LinkedIn":   "site:linkedin.com/jobs",
+        "XING":       "site:xing.com/jobs",
+        "Jobvector":  "site:jobvector.de",
+        "Absolventa":  "site:absolventa.de",
+        "Yourfirm":   "site:yourfirm.de",
+        "Green Jobs": "site:greenjobs.de",
+        "Monster":    "site:monster.de",
+    }
+
+    if has_valid_serpapi_key():
+        api_key   = _get_serpapi_key()
+        site_flt  = SITE_MAP.get(platform, "")
+        q         = f"{query} {site_flt}".strip() if site_flt else query
+        if location:
+            q = f"{q} {location}"
+
+        serpapi_params = {
+            "engine":   "google_jobs",
+            "q":        q,
+            "hl":       "de",
+            "gl":       "de",
+            "chips":    "date_posted:month",
+            "api_key":  api_key,
+            "location": location or "Germany",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=20.0, limits=HTTPX_LIMITS) as client:
+                r = await client.get("https://serpapi.com/search", params=serpapi_params)
+                if r.status_code == 200:
+                    data_serp = r.json()
+                    jobs: list[dict] = []
+                    for item in (data_serp.get("jobs_results") or [])[:count]:
+                        ext      = item.get("detected_extensions") or {}
+                        pub_raw  = ext.get("posted_at") or ""
+                        parsed_date = ""
+                        include  = True
+                        if pub_raw:
+                            try:
+                                days_m = re.search(r"(\d+)\s*Tag", pub_raw)
+                                hrs_m  = re.search(r"(\d+)\s*Stunde", pub_raw)
+                                if days_m:
+                                    d       = int(days_m.group(1))
+                                    include = d <= 30
+                                    parsed_date = (datetime.now() - timedelta(days=d)).strftime("%Y-%m-%d")
+                                elif hrs_m:
+                                    parsed_date = datetime.now().strftime("%Y-%m-%d")
+                                else:
+                                    parsed_date = pub_raw
+                            except Exception:
+                                parsed_date = pub_raw
+                        if not include:
+                            continue
+
+                        # Bewerbungs-URL ermitteln
+                        apply_opts = item.get("apply_options") or []
+                        url = ""
+                        for opt in apply_opts:
+                            if platform.lower() in (opt.get("title") or "").lower():
+                                url = opt.get("link") or ""
+                                break
+                        if not url and apply_opts:
+                            url = apply_opts[0].get("link") or ""
+
+                        jobs.append({
+                            "id":                  item.get("job_id") or f"g-{len(jobs)}",
+                            "title":               (item.get("title") or "").strip(),
+                            "company":             (item.get("company_name") or "").strip(),
+                            "location":            (item.get("location") or location or "").strip(),
+                            "url":                 url,
+                            "description_snippet": (item.get("description") or "")[:400],
+                            "date":                parsed_date,
+                            "source":              platform if platform != "all" else (item.get("via") or "Google Jobs"),
+                        })
+                    logger.info("SerpAPI: %d Jobs für '%s' Plattform '%s'", len(jobs), query, platform)
+                    return jobs
+        except Exception as exc:
+            logger.warning("SerpAPI Fehler: %s", exc)
+
+    # Fallback: Bundesagentur
+    logger.info("Plattform-Fallback auf Bundesagentur für '%s'", query)
+    jobs = await search_jobs_bundesagentur(query, location=location, count=count)
+    for j in jobs:
+        j["source"] = f"{platform} (via Bundesagentur)"
+    return jobs
+
+
+@app.post("/api/jobqueen/platform-jobs")
+async def jobqueen_platform_jobs(request: Request):
+    """Plattform-spezifische Jobsuche (Indeed, StepStone, LinkedIn …)"""
+    try:
+        body     = await request.json()
+        query    = (body.get("query") or "").strip()
+        location = (body.get("location") or "").strip()
+        platform = (body.get("platform") or "all").strip()
+        chat_id  = (body.get("chat_id") or "jobqueen").strip() or "jobqueen"
+
+        if not query:
+            return JSONResponse({"error": "query fehlt"}, status_code=400)
+
+        jobs = await search_jobs_platform(query, location=location, platform=platform, count=25)
+
+        from bot_state import jobqueen_state
+        jobqueen_state.setdefault(chat_id, {})
+        idx  = jobqueen_state[chat_id].setdefault("jobs_index", {})
+        _now = datetime.now().isoformat()
+        jobqueen_state[chat_id].setdefault("query_history", []).append(
+            {"query": query, "platform": platform, "location": location, "at": _now}
+        )
+        for jb in jobs:
+            key = (jb.get("url") or jb.get("id") or f"p-{len(idx)}").strip()
+            idx[key] = jb
+
+        return JSONResponse({"jobs": jobs, "total": len(jobs), "source": platform, "platform": platform})
+
+    except Exception as e:
+        logger.error("jobqueen_platform_jobs Fehler: %s", e, exc_info=True)
+        return JSONResponse({"error": str(e)[:500]}, status_code=500)
 
 
 @app.post("/api/jobqueen/jobs")
@@ -1755,71 +1897,77 @@ async def jobqueen_jobs(request: Request):
 
 @app.post("/api/jobqueen/excel")
 async def jobqueen_excel(request: Request):
-    """JobQueen Excel Endpoint (echtes XLSX)
+    """JobQueen Excel – exportiert ausgewählte Stellen als hübsches XLSX.
 
-    Export Standard: aus jobqueen_state[chat_id]["jobs_index"] (kumuliert über mehrere Suchläufe).
-    Wenn der Client zusätzlich "jobs" mitsendet, werden diese defensiv ebenfalls hinzugefügt/merged.
+    Body-Parameter:
+      jobs         – Stellen-Liste (wird in State gemergt)
+      selected_ids – List[str] von URL/ID-Keys die exportiert werden sollen
+                     (None oder leer = alle)
+      all_queries  – Suchanfragen-Verlauf für das Summary-Sheet
     """
     try:
-        data = await request.json()
-        query = (data.get("query") or "").strip()
-        chat_id = (data.get("chat_id") or "jobqueen").strip() or "jobqueen"
-        jobs = data.get("jobs")
+        body         = await request.json()
+        query        = (body.get("query") or "").strip()
+        chat_id      = (body.get("chat_id") or "jobqueen").strip() or "jobqueen"
+        jobs_raw     = body.get("jobs")
+        selected_ids = body.get("selected_ids")   # List[str] | None
+        all_queries  = body.get("all_queries") or []
 
         from bot_state import jobqueen_state
         jobqueen_state.setdefault(chat_id, {})
         jobqueen_state[chat_id].setdefault("jobs_index", {})
 
-        # Merge incoming jobs (optional) into index
-        if isinstance(jobs, list) and jobs:
-            idx: dict = jobqueen_state[chat_id].setdefault("jobs_index", {})
-            for jb in jobs:
+        # Merge incoming jobs
+        if isinstance(jobs_raw, list) and jobs_raw:
+            idx: dict = jobqueen_state[chat_id]["jobs_index"]
+            for jb in jobs_raw:
                 if not isinstance(jb, dict):
                     continue
-                url_key = (jb.get("url") or "").strip()
-                id_key = (str(jb.get("id") or "").strip())
-                key = url_key or id_key
-                if not key:
-                    key = f"no-url-no-id-{len(idx)}"
+                key = (jb.get("url") or jb.get("id") or f"no-key-{len(idx)}").strip()
                 idx[key] = jb
 
-        # Export all accumulated jobs by default
-        idx = jobqueen_state[chat_id].get("jobs_index") or {}
+        idx            = jobqueen_state[chat_id].get("jobs_index") or {}
         jobs_to_export = list(idx.values())
 
+        # Filtern auf ausgewählte Keys
+        if isinstance(selected_ids, list) and selected_ids:
+            sel_set        = set(str(s) for s in selected_ids if s)
+            jobs_to_export = [j for j in jobs_to_export
+                              if (j.get("url") or j.get("id") or "") in sel_set]
+
         if not jobs_to_export:
-            return JSONResponse({"error": "Keine Jobs im Workspace-Session-State gefunden. Bitte zuerst suchen."}, status_code=400)
+            return JSONResponse(
+                {"error": "Keine Jobs zum Exportieren. Bitte zuerst suchen und Jobs auswählen."},
+                status_code=400,
+            )
 
-        # enforce schema
-        columns = [
-            "Job-ID","Titel","Firma","Ort","URL","Beschreibung (Snippet)"
-        ]
-        rows = []
-        for j in jobs_to_export:
-            rows.append([
-                str(j.get("id") or ""),
-                j.get("title") or "",
-                j.get("company") or "",
-                j.get("location") or "",
-                j.get("url") or "",
-                j.get("description_snippet") or "",
-            ])
+        # Query-History ergänzen
+        if not all_queries:
+            state_hist = jobqueen_state[chat_id].get("query_history") or []
+            all_queries = [q.get("query", "") for q in state_hist if q.get("query")]
 
-
-        from dv import create_excel_from_data
+        from dv import create_jobqueen_excel
         from starlette.responses import Response as _RawResponse
-        buffer = create_excel_from_data(rows, columns, title="JobQueen_Export.xlsx")
 
-        # BytesIO muss als bytes übergeben werden – StreamingResponse würde das
-        # Binary auf \n-Bytes aufteilen und das XLSX korrumpieren.
-        filename = "JobQueen_Export.xlsx"
+        buf = create_jobqueen_excel(
+            jobs=jobs_to_export,
+            queries=all_queries,
+            export_date=datetime.now().strftime("%d.%m.%Y %H:%M"),
+        )
+        content  = buf.getvalue()
+        today    = datetime.now().strftime("%Y-%m-%d")
+        filename = f"JobQueen_Export_{today}.xlsx"
         return _RawResponse(
-            content=buffer.getvalue(),
+            content=content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length":      str(len(content)),
+                "Cache-Control":       "no-cache, no-store",
+            },
         )
     except Exception as e:
-        logger.error(f"jobqueen_excel Fehler: {e}", exc_info=True)
+        logger.error("jobqueen_excel Fehler: %s", e, exc_info=True)
         return JSONResponse({"error": str(e)[:500]}, status_code=500)
 
 
