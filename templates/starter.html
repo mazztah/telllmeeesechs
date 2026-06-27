@@ -818,10 +818,17 @@ function chatMsg(text) {
 let lastQuery = '';
 let lastLocation = '';
 let lastJobs = [];
+// Auswahlzustand (zurückgesetzt bei neuer Suche)
+// key: Job-Key (url oder id), value: Job-Objekt
+let selectedJobs = new Map();
+
 
 async function doSearch() {
   const q    = document.getElementById('main-search').value.trim();
   const loc  = document.getElementById('location-search').value.trim();
+  // per letzter Suche: Auswahl zurücksetzen
+  selectedJobs = new Map();
+
   if (!q) {
     document.getElementById('main-search').focus();
     return;
@@ -905,7 +912,9 @@ function clearResults() {
   lastJobs     = [];
   lastQuery    = '';
   lastLocation = '';
+  selectedJobs = new Map();
 }
+
 
 function renderJobs(jobs) {
   const c = document.getElementById('jobs-container');
@@ -913,15 +922,32 @@ function renderJobs(jobs) {
   jobs.slice(0, 20).forEach(j => {
     const card = document.createElement('div');
     card.className = 'job-card';
+    // for UI feedback
+    card.setAttribute('data-jobkey', (j.url || j.id || j.title || '').toString().trim());
+
+
+    const jobKey = (j.url || j.id || j.title || '')
+      .toString().trim();
+
+    // Checkbox (Multiple Choice)
+    const checked = selectedJobs.has(jobKey) ? 'checked' : '';
+    const selectToggle = `toggleJobSelect('${escHtml(jobKey)}', ${jobKey ? 'true' : 'false'})`;
+
+    const cbHtml = `
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
+        <input type="checkbox" ${checked}
+          onclick="event.stopPropagation();toggleJobSelect('${escHtml(jobKey)}')">
+        <span style="font-size:0.72rem;color:var(--text2)">Auswählen</span>
+      </label>`;
 
     // URL-Button (öffnet direkt die Stelle)
     const applyBtn = j.url
       ? `<a class="job-apply-btn"
             href="${escHtml(j.url)}"
             target="_blank" rel="noopener noreferrer"
-            onclick="event.stopPropagation()"
-            title="${escHtml(j.url)}">🔗 Zur Stelle →</a>`
+            onclick="event.stopPropagation();">🔗 Zur Stelle →</a>`
       : '';
+
 
     // Anschreiben-Button
     const clTitle = escHtml(j.title || '').replace(/'/g, "\\'");
@@ -945,15 +971,21 @@ function renderJobs(jobs) {
       : '';
 
     card.innerHTML = `
-      <div class="job-title">${escHtml(j.title || '—')}${sourceBadge}</div>
-      <div class="job-meta">
-        🏢 ${escHtml(j.company || '—')}${j.location ? ' · 📍 ' + escHtml(j.location) : ''}${dateLabel}
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+        <div>
+          <div class="job-title">${escHtml(j.title || '—')}${sourceBadge}</div>
+          <div class="job-meta">
+            🏢 ${escHtml(j.company || '—')}${j.location ? ' · 📍 ' + escHtml(j.location) : ''}${dateLabel}
+          </div>
+        </div>
+        ${cbHtml}
       </div>
       ${j.description_snippet
         ? `<div class="job-desc">${escHtml(j.description_snippet.slice(0, 220))}…</div>`
         : ''}
       <div class="job-actions">${applyBtn}${clBtn}</div>
     `;
+
 
     // Karte klickt → Stelle in neuem Tab öffnen (wenn URL vorhanden)
     card.onclick = () => {
@@ -1020,21 +1052,45 @@ function platformSearch(name) {
 }
 
 /* ─── EXPORT ────────────────────────────────────────────────────── */
+function toggleJobSelect(jobKey) {
+  if (!jobKey) return;
+
+  const currentlySelected = selectedJobs.has(jobKey);
+  if (currentlySelected) {
+    selectedJobs.delete(jobKey);
+  } else {
+    // find job object in lastJobs
+    const jb = (lastJobs || []).find(x => (x.url || x.id || x.title || '').toString().trim() === jobKey);
+    if (jb) selectedJobs.set(jobKey, jb);
+  }
+
+  // small UI feedback via title color
+  const card = document.querySelector(`[data-jobkey="${CSS.escape(jobKey)}"]`);
+  if (card) {
+    card.style.borderColor = selectedJobs.has(jobKey) ? 'rgba(167,139,250,0.7)' : '';
+  }
+}
+
+
 async function doExport() {
   const q = document.getElementById('main-search').value.trim() || lastQuery;
   if (!q) {
+
     chatMsg('Für den Excel-Export bitte zuerst eine Suche starten.');
     if (isMobile()) openChat();
     return;
   }
   addMsgBoth('📤 Erstelle Excel-Export…', false);
   try {
+    const selected = Array.from(selectedJobs.values());
+    const exportJobs = selected.length ? selected : lastJobs;
+
     const res = await fetch('/api/jobqueen/excel', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      // jobs optional: Server exportiert Standardmäßig aus dem persistenten State
-      body:JSON.stringify({query:q, chat_id:'jobqueen', jobs:lastJobs})
+      body:JSON.stringify({query:q, chat_id:'jobqueen', jobs:exportJobs})
     });
+
 
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const blob = await res.blob();
