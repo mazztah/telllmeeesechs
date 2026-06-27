@@ -212,9 +212,8 @@ def create_excel_from_data(data: list[list], columns: list[str], title: str = "G
 
 def create_jobqueen_excel(jobs: list, queries: list = None, export_date: str = "") -> "BytesIO":
     """
-    Erstellt ein professionell formatiertes JobQueen-Export-XLSX.
-    Sheet 1: Zusammenfassung  (Suchanfragen + Statistik)
-    Sheet 2: Alle ausgewählten Stellen (Links anklickbar)
+    Erstellt professionelles JobQueen-Export-XLSX.
+    Sheet 1: Zusammenfassung | Sheet 2: Ausgewählte Stellen
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -226,148 +225,89 @@ def create_jobqueen_excel(jobs: list, queries: list = None, export_date: str = "
     thin = Side(style="thin",   color="C4B5FD")
     med  = Side(style="medium", color="7C3AED")
     brd  = Border(left=thin, right=thin, top=thin, bottom=thin)
-    brd_h = Border(left=med, right=med, top=med, bottom=med)
+    brdH = Border(left=med,  right=med,  top=med,  bottom=med)
 
-    PURPLE   = "6D28D9"
-    PUR_LT   = "EDE9FE"
-    GOLD     = "D4AF37"
-    WHITE    = "FFFFFF"
-    DARK     = "1E1B4B"
-    DARK2    = "312E81"
-    GRAY     = "6B7280"
-    GREEN    = "065F46"
-    GREEN_BG = "D1FAE5"
-    LINK     = "0563C1"
+    PURPLE="#6D28D9"; PURLT="#EDE9FE"; GOLD="#D4AF37"
+    WHITE="#FFFFFF";  DARK="#1E1B4B"; DARK2="#312E81"
+    GRAY="#6B7280";   GREEN="#065F46"; GBGG="#D1FAE5"; LINK="0563C1"
 
-    def H(ws, row, col, val, bg=PURPLE, fg=WHITE, sz=11, bold=True, ctr=True):
-        c = ws.cell(row=row, column=col, value=val)
-        c.font      = Font(bold=bold, color=fg, size=sz, name="Calibri")
-        c.fill      = PatternFill("solid", fgColor=bg)
-        c.alignment = Alignment(horizontal="center" if ctr else "left",
-                                vertical="center", wrap_text=True)
-        c.border    = brd_h
-        return c
+    def H(ws,r,c,v,bg=PURPLE,fg=WHITE,sz=11,bold=True,ctr=True):
+        x=ws.cell(row=r,column=c,value=v)
+        x.font=Font(bold=bold,color=fg,size=sz,name="Calibri")
+        x.fill=PatternFill("solid",fgColor=bg)
+        x.alignment=Alignment(horizontal="center" if ctr else "left",vertical="center",wrap_text=True)
+        x.border=brdH; return x
 
-    def D(ws, row, col, val, bold=False, color=DARK, bg=None, url=None, ctr=False, sz=10):
-        v = str(val) if val is not None else ""
-        c = ws.cell(row=row, column=col, value=v)
-        c.font      = Font(bold=bold, color=color, size=sz, name="Calibri",
-                           underline="single" if url else None)
-        c.alignment = Alignment(horizontal="center" if ctr else "left",
-                                vertical="top", wrap_text=True)
-        c.border    = brd
-        if bg:
-            c.fill = PatternFill("solid", fgColor=bg)
-        if url and str(url).startswith("http"):
-            c.hyperlink = str(url)
-            c.value     = str(val) if val else str(url)
-        return c
+    def D(ws,r,c,v,bold=False,color=DARK,bg=None,url=None,ctr=False,sz=10):
+        s=str(v) if v is not None else ""
+        x=ws.cell(row=r,column=c,value=s)
+        x.font=Font(bold=bold,color=color,size=sz,name="Calibri",underline="single" if url else None)
+        x.alignment=Alignment(horizontal="center" if ctr else "left",vertical="top",wrap_text=True)
+        x.border=brd
+        if bg: x.fill=PatternFill("solid",fgColor=bg)
+        if url and str(url).startswith("http"): x.hyperlink=str(url); x.value=str(v) if v else str(url)
+        return x
 
-    # ── SHEET 1: ZUSAMMENFASSUNG ────────────────────────────────
-    ws1 = wb.active
-    ws1.title = "Zusammenfassung"
-    ws1.sheet_view.showGridLines = False
-
+    # ── Sheet 1: Zusammenfassung ──────────────────────────────────────────
+    ws1=wb.active; ws1.title="Zusammenfassung"; ws1.sheet_view.showGridLines=False
     ws1.merge_cells("A1:F1")
-    c = ws1["A1"]
-    c.value     = "JobQueen  –  Stellensuche Export"
-    c.font      = Font(bold=True, color=GOLD, size=18, name="Calibri")
-    c.fill      = PatternFill("solid", fgColor=DARK)
-    c.alignment = Alignment(horizontal="center", vertical="center")
-    ws1.row_dimensions[1].height = 38
+    c=ws1["A1"]; c.value="👑  JobQueen  –  Stellensuche Export"
+    c.font=Font(bold=True,color=GOLD,size=18,name="Calibri")
+    c.fill=PatternFill("solid",fgColor=DARK); c.alignment=Alignment(horizontal="center",vertical="center")
+    ws1.row_dimensions[1].height=38
 
     ws1.merge_cells("A2:F2")
-    c = ws1["A2"]
-    ed = export_date or _dt.datetime.now().strftime("%d.%m.%Y %H:%M")
-    c.value     = f"Exportiert am {ed}   ·   {len(jobs)} Stelle(n) ausgewählt"
-    c.font      = Font(color=WHITE, size=10, italic=True, name="Calibri")
-    c.fill      = PatternFill("solid", fgColor=DARK2)
-    c.alignment = Alignment(horizontal="center", vertical="center")
-    ws1.row_dimensions[2].height = 20
-    ws1.row_dimensions[3].height = 8
+    c=ws1["A2"]; ed=export_date or _dt.datetime.now().strftime("%d.%m.%Y %H:%M")
+    c.value=f"Exportiert am {ed}   ·   {len(jobs)} Stelle(n) ausgewählt"
+    c.font=Font(color=WHITE,size=10,italic=True,name="Calibri")
+    c.fill=PatternFill("solid",fgColor=DARK2); c.alignment=Alignment(horizontal="center",vertical="center")
+    ws1.row_dimensions[2].height=20; ws1.row_dimensions[3].height=8
 
-    # Spaltenköpfe
-    H(ws1, 4, 1, "Suchanfrage",     bg=PURPLE, sz=10)
-    H(ws1, 4, 2, "Plattform",       bg=PURPLE, sz=10)
-    H(ws1, 4, 3, "Anzahl Stellen",  bg=PURPLE, sz=10)
+    H(ws1,4,1,"Suchanfrage",bg=PURPLE,sz=10); H(ws1,4,2,"Plattform",bg=PURPLE,sz=10); H(ws1,4,3,"Stellen",bg=PURPLE,sz=10)
+    src_counts=Counter(j.get("source") or "–" for j in jobs)
+    qlist=list(dict.fromkeys([q for q in (queries or []) if q]))
+    n=max(len(qlist),len(src_counts),1)
+    for i in range(n):
+        r=5+i; bg=PURLT if i%2==0 else WHITE
+        D(ws1,r,1,qlist[i] if i<len(qlist) else "",bg=bg)
+    for i,(src,cnt) in enumerate(src_counts.items()):
+        r=5+i; bg=PURLT if i%2==0 else WHITE
+        D(ws1,r,2,src,bg=bg); D(ws1,r,3,str(cnt),bg=bg,ctr=True)
+    tr=5+n+1; ws1.merge_cells(f"A{tr}:B{tr}")
+    H(ws1,tr,1,f"✅  Gesamt: {len(jobs)} Stellen ausgewählt",bg=GREEN,sz=11); D(ws1,tr,3,"",bg=GBGG)
+    for col,w in zip("ABCDEF",[44,28,14,10,10,10]):
+        ws1.column_dimensions[col].width=w
 
-    src_counts   = Counter(j.get("source") or "–" for j in jobs)
-    query_list   = list(dict.fromkeys([q for q in (queries or []) if q]))
+    # ── Sheet 2: Ausgewählte Stellen ──────────────────────────────────────
+    ws2=wb.create_sheet("Ausgewählte Stellen"); ws2.sheet_view.showGridLines=False; ws2.freeze_panes="A3"
+    COLS=[("Nr.",6),("Jobtitel",38),("Firma",28),("Ort",20),("Quelle",20),("Datum",16),("Link zur Stelle",52),("Kurzbeschreibung",54)]
+    n2=len(COLS)
+    ws2.merge_cells(f"A1:{get_column_letter(n2)}1")
+    c=ws2["A1"]; c.value=f"👑  JobQueen  –  {len(jobs)} ausgewählte Stellen"
+    c.font=Font(bold=True,color=GOLD,size=14,name="Calibri")
+    c.fill=PatternFill("solid",fgColor=DARK); c.alignment=Alignment(horizontal="center",vertical="center")
+    ws2.row_dimensions[1].height=30
+    for ci,(name,w) in enumerate(COLS,1):
+        H(ws2,2,ci,name,bg=PURPLE,sz=10); ws2.column_dimensions[get_column_letter(ci)].width=w
+    ws2.row_dimensions[2].height=22
 
-    n_rows = max(len(query_list), len(src_counts), 1)
-    for i in range(n_rows):
-        r   = 5 + i
-        bg  = PUR_LT if i % 2 == 0 else WHITE
-        D(ws1, r, 1, query_list[i] if i < len(query_list) else "", bg=bg)
-    for i, (src, cnt) in enumerate(src_counts.items()):
-        r  = 5 + i
-        bg = PUR_LT if i % 2 == 0 else WHITE
-        D(ws1, r, 2, src,          bg=bg)
-        D(ws1, r, 3, f"{cnt}",     bg=bg, ctr=True)
+    for ri,j in enumerate(jobs,3):
+        bg=PURLT if (ri-3)%2==0 else WHITE
+        url=j.get("url") or ""
+        raw_d=j.get("date") or ""
+        try: date_str=_dt.datetime.fromisoformat(raw_d.split("T")[0]).strftime("%d.%m.%Y")
+        except: date_str=raw_d
+        D(ws2,ri,1,ri-2,bg=bg,bold=True,color=PURPLE,ctr=True,sz=10)
+        D(ws2,ri,2,j.get("title") or "",bg=bg,bold=True,sz=10)
+        D(ws2,ri,3,j.get("company") or "",bg=bg,sz=10)
+        D(ws2,ri,4,j.get("location") or "",bg=bg,sz=10)
+        D(ws2,ri,5,j.get("source") or "",bg=bg,color=GRAY,sz=9)
+        D(ws2,ri,6,date_str,bg=bg,ctr=True,sz=10)
+        D(ws2,ri,7,"🔗 Zur Stelle öffnen",bg=bg,url=url,color=LINK,bold=True,sz=10)
+        D(ws2,ri,8,(j.get("description_snippet") or "")[:300],bg=bg,color=GRAY,sz=9)
+        ws2.row_dimensions[ri].height=44
 
-    total_r = 5 + n_rows + 1
-    ws1.merge_cells(f"A{total_r}:B{total_r}")
-    H(ws1, total_r, 1, f"Gesamt ausgewählt:  {len(jobs)} Stellen", bg=GREEN, sz=11)
-    D(ws1, total_r, 3, "", bg=GREEN_BG)
-
-    for col, w in zip("ABCDEF", [44, 28, 18, 10, 10, 10]):
-        ws1.column_dimensions[col].width = w
-
-    # ── SHEET 2: STELLEN ────────────────────────────────────────
-    ws2 = wb.create_sheet("Ausgewählte Stellen")
-    ws2.sheet_view.showGridLines = False
-    ws2.freeze_panes = "A3"
-
-    COLS = [
-        ("Nr.",            6),
-        ("Jobtitel",      38),
-        ("Firma",         28),
-        ("Ort",           20),
-        ("Quelle",        20),
-        ("Datum",         16),
-        ("Link zur Stelle", 52),
-        ("Kurzbeschreibung", 54),
-    ]
-    n = len(COLS)
-
-    ws2.merge_cells(f"A1:{get_column_letter(n)}1")
-    c = ws2["A1"]
-    c.value     = f"JobQueen  –  {len(jobs)} ausgewählte Stellen"
-    c.font      = Font(bold=True, color=GOLD, size=14, name="Calibri")
-    c.fill      = PatternFill("solid", fgColor=DARK)
-    c.alignment = Alignment(horizontal="center", vertical="center")
-    ws2.row_dimensions[1].height = 30
-
-    for ci, (name, w) in enumerate(COLS, 1):
-        H(ws2, 2, ci, name, bg=PURPLE, sz=10)
-        ws2.column_dimensions[get_column_letter(ci)].width = w
-    ws2.row_dimensions[2].height = 22
-
-    for ri, j in enumerate(jobs, 3):
-        bg  = PUR_LT if (ri - 3) % 2 == 0 else WHITE
-        url = j.get("url") or ""
-        # Datum
-        raw_d = j.get("date") or ""
-        try:
-            d_obj    = _dt.datetime.fromisoformat(raw_d.split("T")[0])
-            date_str = d_obj.strftime("%d.%m.%Y")
-        except Exception:
-            date_str = raw_d
-
-        D(ws2, ri, 1, ri - 2,                           bg=bg, bold=True, color=PURPLE, ctr=True, sz=10)
-        D(ws2, ri, 2, j.get("title") or "",             bg=bg, bold=True, sz=10)
-        D(ws2, ri, 3, j.get("company") or "",           bg=bg, sz=10)
-        D(ws2, ri, 4, j.get("location") or "",          bg=bg, sz=10)
-        D(ws2, ri, 5, j.get("source") or "",            bg=bg, color=GRAY, sz=9)
-        D(ws2, ri, 6, date_str,                          bg=bg, ctr=True, sz=10)
-        D(ws2, ri, 7, "Zur Stelle öffnen",              bg=bg, url=url, color=LINK, bold=True, sz=10)
-        D(ws2, ri, 8, (j.get("description_snippet") or "")[:300], bg=bg, color=GRAY, sz=9)
-        ws2.row_dimensions[ri].height = 44
-
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
+    buf=BytesIO(); wb.save(buf); buf.seek(0); return buf
 
 
 def create_chart_from_df(df: pd.DataFrame, title: str = "Chart") -> BytesIO:

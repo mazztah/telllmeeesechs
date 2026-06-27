@@ -24,6 +24,7 @@ HTTPX_TIMEOUT = httpx.Timeout(
     pool=10.0,
 )
 from datetime import datetime, timedelta
+import re as _re
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any
 
@@ -1523,12 +1524,12 @@ async def search_jobs_bundesagentur(query: str, location: str = "", count: int =
     }
 
     params: dict = {
-        "was":                 was,
-        "size":                min(count, 25),
-        "page":                1,
-        "angebotsart":         "1",
-        "pav":                 "false",
-        "veroeffentlichtseit": 30,   # max. 30 Tage alte Angebote
+        "was":        was,
+        "size":       min(count, 25),
+        "page":       1,
+        "angebotsart": "1",
+        "pav":        "false",
+        "veroeffentlichtseit": 30,
     }
     if wo:
         params["wo"]      = wo
@@ -1618,106 +1619,485 @@ async def search_jobs_bundesagentur(query: str, location: str = "", count: int =
 
 
 
-# ─── Plattform-Job-Suche (SerpAPI Google Jobs) ────────────────────────────────
+# ─── Session-Storage für Excel-Downloads ──────────────────────────────────────
+import uuid as _uuid
+_excel_sessions: dict = {}   # token → bytes
+
+def _trim_excel_sessions(max_entries: int = 20) -> None:
+    while len(_excel_sessions) > max_entries:
+        _excel_sessions.pop(next(iter(_excel_sessions)))
+
+
+# ─── Plattform-Job-Suche ──────────────────────────────────────────────────────
+
+async def _search_indeed_rss(query: str, location: str, count: int) -> list[dict]:
+    """Holt Jobs von Indeed Deutschland via öffentlichem RSS-Feed."""
+    from urllib.parse import quote_plus
+    from email.utils import parsedate_to_datetime
+    import xml.etree.ElementTree as _ET
+
+    q   = quote_plus(query)
+    loc = quote_plus(location) if location else ""
+    url = (f"https://de.indeed.com/rss?q={q}&sort=date&fromage=30&limit={min(count,25)}"
+           + (f"&l={loc}" if loc else ""))
+
+    headers = {
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0 Safari/537.36"),
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        "Accept-Language": "de-DE,de;q=0.9",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            r = await client.get(url, headers=headers)
+        if r.status_code != 200:
+            logger.warning("Indeed RSS: HTTP %s", r.status_code)
+            return []
+
+        root    = _ET.fromstring(r.text)
+        channel = root.find("channel")
+        if channel is None:
+            return []
+
+        jobs: list[dict] = []
+        for item in channel.findall("item")[:count]:
+            raw_title = (item.findtext("title") or "").strip()
+            link      = (item.findtext("link")  or "").strip()
+            desc_raw  = (item.findtext("description") or "").strip()
+            pub_date  = (item.findtext("pubDate") or "").strip()
+            src_el    = item.find("source")
+            company   = (src_el.text or "").strip() if src_el is not None else ""
+
+            # "Jobtitel - Firma" trennen
+            title = raw_title
+            if not company and " - " in raw_title:
+                parts   = raw_title.rsplit(" - ", 1)
+                title   = parts[0].strip()
+                company = parts[1].strip()
+
+            # Datum parsen
+            parsed_date = ""
+            if pub_date:
+                try:
+                    parsed_date = parsedate_to_datetime(pub_date).strftime("%Y-%m-%d")
+                except Exception:
+                    parsed_date = pub_date
+
+            # HTML aus Beschreibung entfernen
+            desc = _re.sub(r"<[^>]+>", " ", desc_raw).strip()[:400]
+
+            jobs.append({
+                "id":                  (link.split("jk=")[1][:16] if "jk=" in link else link[-20:]),
+                "title":               title,
+                "company":             company,
+                "location":            location or "Deutschland",
+                "url":                 link,
+                "description_snippet": desc,
+                "date":                parsed_date,
+                "source":              "Indeed",
+            })
+        logger.info("Indeed RSS: %d Jobs für '%s'", len(jobs), query)
+        return jobs
+    except Exception as exc:
+        logger.warning("Indeed RSS Fehler: %s", exc)
+        return []
+
+
+async def _search_stepstone(query: str, location: str, count: int) -> list[dict]:
+    """Holt Jobs von StepStone via __NEXT_DATA__ JSON aus der Suchergebnisseite."""
+    from urllib.parse import quote_plus
+    q   = quote_plus(query)
+    loc = quote_plus(location) if location else ""
+    url = f"https://www.stepstone.de/work/{q}/{loc}.html?ob=Datum&radius=50" if loc else f"https://www.stepstone.de/work/{q}.html?ob=Datum"
+
+    headers = {
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0 Safari/537.36"),
+        "Accept": "text/html,application/xhtml+xml,*/*",
+        "Accept-Language": "de-DE,de;q=0.9",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=18.0, follow_redirects=True) as client:
+            r = await client.get(url, headers=headers)
+        if r.status_code != 200:
+            return []
+
+        # __NEXT_DATA__ extrahieren
+        m = _re.search(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', r.text, _re.S)
+        if not m:
+            return []
+
+        import json as _json
+        nd       = _json.loads(m.group(1))
+        # Pfad: props → pageProps → searchResult → results
+        results  = (nd.get("props") or {}).get("pageProps") or {}
+        listings = (results.get("searchResult") or results.get("results") or {})
+        if isinstance(listings, dict):
+            listings = listings.get("results") or listings.get("listings") or []
+        if not isinstance(listings, list):
+            return []
+
+        jobs: list[dict] = []
+        for item in listings[:count]:
+            date_raw = item.get("listingDate") or item.get("date") or ""
+            parsed_date = ""
+            if date_raw:
+                try:
+                    from datetime import datetime as _dt
+                    parsed_date = _dt.fromisoformat(date_raw.split("T")[0]).strftime("%Y-%m-%d")
+                except Exception:
+                    parsed_date = date_raw
+
+            title   = item.get("jobTitle") or item.get("title") or ""
+            company = item.get("company") or item.get("companyName") or ""
+            loc_str = item.get("locationStr") or item.get("location") or location or ""
+            job_url = item.get("canonical") or item.get("url") or ""
+            if job_url and not job_url.startswith("http"):
+                job_url = "https://www.stepstone.de" + job_url
+            desc    = item.get("jobDescription") or item.get("description") or ""
+            desc    = _re.sub(r"<[^>]+>", " ", str(desc)).strip()[:400]
+
+            jobs.append({
+                "id":                  str(item.get("id") or item.get("jobId") or len(jobs)),
+                "title":               title,
+                "company":             company,
+                "location":            loc_str,
+                "url":                 job_url,
+                "description_snippet": desc,
+                "date":                parsed_date,
+                "source":              "StepStone",
+            })
+        logger.info("StepStone: %d Jobs für '%s'", len(jobs), query)
+        return jobs
+    except Exception as exc:
+        logger.warning("StepStone Scraper Fehler: %s", exc)
+        return []
+
+
+async def _search_jobvector_rss(query: str, location: str, count: int) -> list[dict]:
+    """Jobvector RSS-Feed."""
+    from urllib.parse import quote_plus
+    import xml.etree.ElementTree as _ET
+    from email.utils import parsedate_to_datetime
+
+    q   = quote_plus(query)
+    loc = quote_plus(location) if location else ""
+    url = f"https://www.jobvector.de/jobs/rss/?q={q}" + (f"&location={loc}" if loc else "")
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/rss+xml, */*"}
+    try:
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            r = await client.get(url, headers=headers)
+        if r.status_code != 200:
+            return []
+        root    = _ET.fromstring(r.text)
+        channel = root.find("channel")
+        if channel is None:
+            return []
+        jobs: list[dict] = []
+        for item in channel.findall("item")[:count]:
+            title    = (item.findtext("title") or "").strip()
+            link     = (item.findtext("link")  or "").strip()
+            desc_raw = (item.findtext("description") or "").strip()
+            pub      = (item.findtext("pubDate") or "").strip()
+            company  = ""
+            for ns in ["", "{http://purl.org/dc/elements/1.1/}"]:
+                c = item.findtext(f"{ns}creator")
+                if c:
+                    company = c.strip()
+                    break
+            parsed_date = ""
+            if pub:
+                try:
+                    parsed_date = parsedate_to_datetime(pub).strftime("%Y-%m-%d")
+                except Exception:
+                    parsed_date = pub
+            desc = _re.sub(r"<[^>]+>", " ", desc_raw).strip()[:400]
+            jobs.append({
+                "id": link[-20:], "title": title, "company": company,
+                "location": location or "Deutschland", "url": link,
+                "description_snippet": desc, "date": parsed_date, "source": "Jobvector",
+            })
+        logger.info("Jobvector RSS: %d Jobs für '%s'", len(jobs), query)
+        return jobs
+    except Exception as exc:
+        logger.warning("Jobvector RSS Fehler: %s", exc)
+        return []
+
+
+
+async def _search_linkedin(query: str, location: str, count: int) -> list[dict]:
+    """
+    LinkedIn-Jobs via öffentlicher Guest-API (kein Login nötig).
+    Endpunkt: /jobs-guest/jobs/api/seeMoreJobPostings/search
+    f_TPR=r2592000  → letzte 30 Tage
+    """
+    from urllib.parse import quote_plus
+    q   = quote_plus(query)
+    loc = quote_plus(location or "Deutschland")
+    url = (
+        "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+        f"?keywords={q}&location={loc}"
+        "&f_TPR=r2592000"           # 30 Tage
+        f"&count={min(count, 25)}"
+        "&start=0&sortBy=DD"
+    )
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept":          "text/html,application/xhtml+xml,*/*;q=0.9",
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+        "Referer":         "https://www.linkedin.com/jobs/search/",
+        "Cache-Control":   "no-cache",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=22.0, follow_redirects=True) as client:
+            r = await client.get(url, headers=headers)
+        if r.status_code != 200:
+            logger.warning("LinkedIn guest API: HTTP %s", r.status_code)
+            return []
+        html = r.text
+
+        # ── HTML-Karten parsen ──────────────────────────────────────────────
+        # Jedes Job-Item: data-entity-urn → Stellenangebots-ID
+        # Reihenfolge: URN / URL / Titel / Firma / Ort / Datum
+        pattern = (
+            r'data-entity-urn="urn:li:jobPosting:(\d+)"'
+            r'.*?href="(https://www\.linkedin\.com/jobs/view/[^"?&]+)[^"]*"'
+            r'.*?class="[^"]*base-search-card__title[^"]*"[^>]*>\s*(.*?)\s*</h3>'
+            r'.*?class="[^"]*base-search-card__subtitle[^"]*"[^>]*>\s*(.*?)\s*</h4>'
+            r'.*?class="[^"]*job-search-card__location[^"]*"[^>]*>\s*(.*?)\s*</span>'
+            r'.*?datetime="([^"]*)"'
+        )
+        matches = _re.findall(pattern, html, _re.S)
+
+        # Fallback-Pattern (ältere Markup-Variante ohne data-entity-urn)
+        if not matches:
+            pattern2 = (
+                r'href="(https://www\.linkedin\.com/jobs/view/[^"?&]+)[^"]*"[^>]*>'
+                r'.*?class="[^"]*base-search-card__title[^"]*"[^>]*>\s*(.*?)\s*</h3>'
+                r'.*?class="[^"]*base-search-card__subtitle[^"]*"[^>]*>\s*(.*?)\s*</h4>'
+                r'.*?class="[^"]*job-search-card__location[^"]*"[^>]*>\s*(.*?)\s*</span>'
+                r'.*?datetime="([^"]*)"'
+            )
+            matches2 = _re.findall(pattern2, html, _re.S)
+            for i, (link, t, c, l, d) in enumerate(matches2[:count]):
+                matches.append((str(i), link, t, c, l, d))
+
+        jobs: list[dict] = []
+        seen_ids: set[str] = set()
+        for job_id, link, title_r, company_r, loc_r, date_str in matches[:count]:
+            if job_id in seen_ids:
+                continue
+            seen_ids.add(job_id)
+            title   = _re.sub(r"<[^>]+>", "", title_r).strip()
+            company = _re.sub(r"<[^>]+>", "", company_r).strip()
+            loc_str = _re.sub(r"<[^>]+>", "", loc_r).strip()
+            if not title:
+                continue
+            jobs.append({
+                "id":                  job_id,
+                "title":               title,
+                "company":             company,
+                "location":            loc_str or location,
+                "url":                 link,
+                "description_snippet": "",
+                "date":                date_str,
+                "source":              "LinkedIn",
+            })
+
+        logger.info("LinkedIn: %d Jobs für '%s' in '%s'", len(jobs), query, location)
+        return jobs
+    except Exception as exc:
+        logger.warning("LinkedIn Scraper Fehler: %s", exc)
+        return []
+
+
+async def _search_xing(query: str, location: str, count: int) -> list[dict]:
+    """
+    XING-Jobs via Suchseiten-Scraping.
+    Versucht Next.js __NEXT_DATA__ sowie JSON-LD; Fallback: HTML-Pattern.
+    """
+    from urllib.parse import quote_plus
+    import json as _json
+
+    q   = quote_plus(query)
+    loc = quote_plus(location or "")
+    # Öffentliche (nicht-Login) Suchseite
+    url = f"https://www.xing.com/jobs/search?keywords={q}&location={loc}&sort=date"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept":          "text/html,application/xhtml+xml,*/*",
+        "Accept-Language": "de-DE,de;q=0.9",
+        "Referer":         "https://www.xing.com/",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=22.0, follow_redirects=True) as client:
+            r = await client.get(url, headers=headers)
+        if r.status_code != 200:
+            logger.warning("XING: HTTP %s", r.status_code)
+            return []
+        html = r.text
+
+        # ── 1) __NEXT_DATA__ (Next.js SSR) ─────────────────────────────────
+        nd_m = _re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, _re.S)
+        if nd_m:
+            try:
+                nd    = _json.loads(nd_m.group(1))
+                props = nd.get("props", {}).get("pageProps", {})
+                # XING-spezifische Datenpfade durchsuchen
+                candidates = [
+                    props.get("searchResult", {}).get("results"),
+                    props.get("jobs",         {}).get("collection"),
+                    props.get("initialData",  {}).get("jobSearchResults", {}).get("edges"),
+                    props.get("data",         {}).get("jobs"),
+                ]
+                for raw_list in candidates:
+                    if not isinstance(raw_list, list) or not raw_list:
+                        continue
+                    jobs: list[dict] = []
+                    for item in raw_list[:count]:
+                        node = item.get("node", item) if isinstance(item, dict) else {}
+                        if not isinstance(node, dict):
+                            continue
+                        date_raw = node.get("publishedAt") or node.get("activatedAt") or ""
+                        parsed_date = ""
+                        if date_raw:
+                            try:
+                                from datetime import datetime as _dt2
+                                parsed_date = _dt2.fromisoformat(date_raw[:10]).strftime("%Y-%m-%d")
+                            except Exception:
+                                pass
+                        title       = node.get("title") or node.get("name") or ""
+                        co_obj      = node.get("company") or {}
+                        company     = (co_obj.get("name") if isinstance(co_obj, dict) else str(co_obj)) or ""
+                        loc_obj     = node.get("location") or {}
+                        loc_str     = (loc_obj.get("city") or loc_obj.get("text") or location) if isinstance(loc_obj, dict) else location
+                        job_url     = node.get("url") or node.get("slug") or ""
+                        if job_url and not job_url.startswith("http"):
+                            job_url = "https://www.xing.com" + job_url
+                        desc        = str(node.get("description") or node.get("summary") or "")[:400]
+                        if title:
+                            jobs.append({
+                                "id": str(node.get("id") or len(jobs)), "title": title,
+                                "company": company, "location": loc_str,
+                                "url": job_url, "description_snippet": desc,
+                                "date": parsed_date, "source": "XING",
+                            })
+                    if jobs:
+                        logger.info("XING via __NEXT_DATA__: %d Jobs für '%s'", len(jobs), query)
+                        return jobs
+            except (_json.JSONDecodeError, KeyError):
+                pass
+
+        # ── 2) JSON-LD (strukturierte Daten) ───────────────────────────────
+        for ld_str in _re.findall(r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', html, _re.S):
+            try:
+                ld = _json.loads(ld_str)
+                items = ld if isinstance(ld, list) else [ld]
+                jobs_ld: list[dict] = []
+                for obj in items:
+                    if obj.get("@type") not in ("JobPosting", "JobListing"):
+                        continue
+                    title   = obj.get("title") or obj.get("name") or ""
+                    company = (obj.get("hiringOrganization") or {}).get("name") or ""
+                    loc_obj = obj.get("jobLocation") or {}
+                    if isinstance(loc_obj, dict):
+                        addr    = loc_obj.get("address") or {}
+                        loc_str = (addr.get("addressLocality") or addr.get("addressRegion") or location) if isinstance(addr, dict) else location
+                    else:
+                        loc_str = location
+                    date_str  = obj.get("datePosted") or ""
+                    job_url   = obj.get("url") or ""
+                    desc      = str(obj.get("description") or "")[:400]
+                    if title:
+                        jobs_ld.append({
+                            "id": job_url[-20:] or str(len(jobs_ld)), "title": title,
+                            "company": company, "location": loc_str,
+                            "url": job_url, "description_snippet": _re.sub(r"<[^>]+>","",desc).strip(),
+                            "date": date_str, "source": "XING",
+                        })
+                if jobs_ld:
+                    logger.info("XING via JSON-LD: %d Jobs für '%s'", len(jobs_ld), query)
+                    return jobs_ld[:count]
+            except (_json.JSONDecodeError, AttributeError):
+                pass
+
+        # ── 3) HTML-Fallback ───────────────────────────────────────────────
+        # XING rendert z.T. Server-seitig Karten mit data-* Attributen
+        html_jobs: list[dict] = []
+        for m in _re.finditer(
+            r'<[^>]+data-job-id="([^"]+)"[^>]*>.*?'
+            r'class="[^"]*job-title[^"]*"[^>]*>(.*?)</.*?'
+            r'class="[^"]*company-name[^"]*"[^>]*>(.*?)</.*?'
+            r'href="(/jobs/[^"?]+)"',
+            html, _re.S
+        ):
+            jid, t, c, slug = m.groups()
+            html_jobs.append({
+                "id": jid, "title": _re.sub(r"<[^>]+>","",t).strip(),
+                "company": _re.sub(r"<[^>]+>","",c).strip(),
+                "location": location, "url": "https://www.xing.com" + slug,
+                "description_snippet": "", "date": "", "source": "XING",
+            })
+        if html_jobs:
+            logger.info("XING via HTML: %d Jobs", len(html_jobs))
+            return html_jobs[:count]
+
+        logger.info("XING: Keine Daten extrahiert (Login evtl. nötig)")
+        return []
+    except Exception as exc:
+        logger.warning("XING Scraper Fehler: %s", exc)
+        return []
+
 
 async def search_jobs_platform(query: str, location: str = "", platform: str = "all", count: int = 25) -> list[dict]:
-    """
-    Holt Stellen von externen Plattformen via SerpAPI Google Jobs.
-    Filtert automatisch auf max. 30 Tage alte Angebote.
-    Fallback: Bundesagentur für Arbeit.
-    """
-    from search import has_valid_serpapi_key, _get_serpapi_key
-
-    # Bundesagentur hat eigene API
-    if platform == "Arbeitsagentur":
+    """Holt Stellen von der gewünschten Plattform. Fallback: Bundesagentur."""
+    if platform in ("Arbeitsagentur", "Bundesagentur"):
         jobs = await search_jobs_bundesagentur(query, location=location, count=count)
         for j in jobs:
             j["source"] = "Bundesagentur für Arbeit"
         return jobs
 
-    SITE_MAP = {
-        "Indeed":     "site:de.indeed.com",
-        "StepStone":  "site:stepstone.de",
-        "LinkedIn":   "site:linkedin.com/jobs",
-        "XING":       "site:xing.com/jobs",
-        "Jobvector":  "site:jobvector.de",
-        "Absolventa":  "site:absolventa.de",
-        "Yourfirm":   "site:yourfirm.de",
-        "Green Jobs": "site:greenjobs.de",
-        "Monster":    "site:monster.de",
-    }
+    # Plattform-spezifische Scraper
+    if platform == "Indeed":
+        jobs = await _search_indeed_rss(query, location, count)
+        if jobs:
+            return jobs
 
-    if has_valid_serpapi_key():
-        api_key   = _get_serpapi_key()
-        site_flt  = SITE_MAP.get(platform, "")
-        q         = f"{query} {site_flt}".strip() if site_flt else query
-        if location:
-            q = f"{q} {location}"
+    if platform == "StepStone":
+        jobs = await _search_stepstone(query, location, count)
+        if jobs:
+            return jobs
 
-        serpapi_params = {
-            "engine":   "google_jobs",
-            "q":        q,
-            "hl":       "de",
-            "gl":       "de",
-            "chips":    "date_posted:month",
-            "api_key":  api_key,
-            "location": location or "Germany",
-        }
-        try:
-            async with httpx.AsyncClient(timeout=20.0, limits=HTTPX_LIMITS) as client:
-                r = await client.get("https://serpapi.com/search", params=serpapi_params)
-                if r.status_code == 200:
-                    data_serp = r.json()
-                    jobs: list[dict] = []
-                    for item in (data_serp.get("jobs_results") or [])[:count]:
-                        ext      = item.get("detected_extensions") or {}
-                        pub_raw  = ext.get("posted_at") or ""
-                        parsed_date = ""
-                        include  = True
-                        if pub_raw:
-                            try:
-                                days_m = re.search(r"(\d+)\s*Tag", pub_raw)
-                                hrs_m  = re.search(r"(\d+)\s*Stunde", pub_raw)
-                                if days_m:
-                                    d       = int(days_m.group(1))
-                                    include = d <= 30
-                                    parsed_date = (datetime.now() - timedelta(days=d)).strftime("%Y-%m-%d")
-                                elif hrs_m:
-                                    parsed_date = datetime.now().strftime("%Y-%m-%d")
-                                else:
-                                    parsed_date = pub_raw
-                            except Exception:
-                                parsed_date = pub_raw
-                        if not include:
-                            continue
+    if platform == "Jobvector":
+        jobs = await _search_jobvector_rss(query, location, count)
+        if jobs:
+            return jobs
 
-                        # Bewerbungs-URL ermitteln
-                        apply_opts = item.get("apply_options") or []
-                        url = ""
-                        for opt in apply_opts:
-                            if platform.lower() in (opt.get("title") or "").lower():
-                                url = opt.get("link") or ""
-                                break
-                        if not url and apply_opts:
-                            url = apply_opts[0].get("link") or ""
+    if platform == "LinkedIn":
+        jobs = await _search_linkedin(query, location, count)
+        if jobs:
+            return jobs
 
-                        jobs.append({
-                            "id":                  item.get("job_id") or f"g-{len(jobs)}",
-                            "title":               (item.get("title") or "").strip(),
-                            "company":             (item.get("company_name") or "").strip(),
-                            "location":            (item.get("location") or location or "").strip(),
-                            "url":                 url,
-                            "description_snippet": (item.get("description") or "")[:400],
-                            "date":                parsed_date,
-                            "source":              platform if platform != "all" else (item.get("via") or "Google Jobs"),
-                        })
-                    logger.info("SerpAPI: %d Jobs für '%s' Plattform '%s'", len(jobs), query, platform)
-                    return jobs
-        except Exception as exc:
-            logger.warning("SerpAPI Fehler: %s", exc)
+    if platform == "XING":
+        jobs = await _search_xing(query, location, count)
+        if jobs:
+            return jobs
 
-    # Fallback: Bundesagentur
-    logger.info("Plattform-Fallback auf Bundesagentur für '%s'", query)
+    # Monster, Absolventa, Yourfirm, Green Jobs → kein öffentlicher Zugang
+    if platform in ("Monster", "Absolventa", "Yourfirm", "Green Jobs"):
+        return []
+
+    # Allgemeiner Fallback
     jobs = await search_jobs_bundesagentur(query, location=location, count=count)
     for j in jobs:
         j["source"] = f"{platform} (via Bundesagentur)"
@@ -1726,14 +2106,13 @@ async def search_jobs_platform(query: str, location: str = "", platform: str = "
 
 @app.post("/api/jobqueen/platform-jobs")
 async def jobqueen_platform_jobs(request: Request):
-    """Plattform-spezifische Jobsuche (Indeed, StepStone, LinkedIn …)"""
+    """Plattform-spezifische Jobsuche."""
     try:
         body     = await request.json()
         query    = (body.get("query") or "").strip()
         location = (body.get("location") or "").strip()
         platform = (body.get("platform") or "all").strip()
         chat_id  = (body.get("chat_id") or "jobqueen").strip() or "jobqueen"
-
         if not query:
             return JSONResponse({"error": "query fehlt"}, status_code=400)
 
@@ -1742,15 +2121,14 @@ async def jobqueen_platform_jobs(request: Request):
         from bot_state import jobqueen_state
         jobqueen_state.setdefault(chat_id, {})
         idx  = jobqueen_state[chat_id].setdefault("jobs_index", {})
-        _now = datetime.now().isoformat()
         jobqueen_state[chat_id].setdefault("query_history", []).append(
-            {"query": query, "platform": platform, "location": location, "at": _now}
+            {"query": query, "platform": platform, "location": location, "at": datetime.now().isoformat()}
         )
         for jb in jobs:
             key = (jb.get("url") or jb.get("id") or f"p-{len(idx)}").strip()
             idx[key] = jb
 
-        return JSONResponse({"jobs": jobs, "total": len(jobs), "source": platform, "platform": platform})
+        return JSONResponse({"jobs": jobs, "total": len(jobs), "source": platform, "platform": platform, "no_api": len(jobs) == 0})
 
     except Exception as e:
         logger.error("jobqueen_platform_jobs Fehler: %s", e, exc_info=True)
@@ -1897,78 +2275,78 @@ async def jobqueen_jobs(request: Request):
 
 @app.post("/api/jobqueen/excel")
 async def jobqueen_excel(request: Request):
-    """JobQueen Excel – exportiert ausgewählte Stellen als hübsches XLSX.
-
-    Body-Parameter:
-      jobs         – Stellen-Liste (wird in State gemergt)
-      selected_ids – List[str] von URL/ID-Keys die exportiert werden sollen
-                     (None oder leer = alle)
-      all_queries  – Suchanfragen-Verlauf für das Summary-Sheet
-    """
+    """JobQueen Excel – bereitet Export vor und gibt einen Session-Download-Token zurück."""
     try:
         body         = await request.json()
-        query        = (body.get("query") or "").strip()
+        query        = (body.get("query") or "Jobsuche").strip()
         chat_id      = (body.get("chat_id") or "jobqueen").strip() or "jobqueen"
         jobs_raw     = body.get("jobs")
-        selected_ids = body.get("selected_ids")   # List[str] | None
+        selected_ids = body.get("selected_ids")
         all_queries  = body.get("all_queries") or []
 
         from bot_state import jobqueen_state
         jobqueen_state.setdefault(chat_id, {})
-        jobqueen_state[chat_id].setdefault("jobs_index", {})
+        idx: dict = jobqueen_state[chat_id].setdefault("jobs_index", {})
 
-        # Merge incoming jobs
-        if isinstance(jobs_raw, list) and jobs_raw:
-            idx: dict = jobqueen_state[chat_id]["jobs_index"]
+        if isinstance(jobs_raw, list):
             for jb in jobs_raw:
-                if not isinstance(jb, dict):
-                    continue
-                key = (jb.get("url") or jb.get("id") or f"no-key-{len(idx)}").strip()
-                idx[key] = jb
+                if isinstance(jb, dict):
+                    key = (jb.get("url") or jb.get("id") or f"no-key-{len(idx)}").strip()
+                    idx[key] = jb
 
-        idx            = jobqueen_state[chat_id].get("jobs_index") or {}
         jobs_to_export = list(idx.values())
-
-        # Filtern auf ausgewählte Keys
         if isinstance(selected_ids, list) and selected_ids:
             sel_set        = set(str(s) for s in selected_ids if s)
-            jobs_to_export = [j for j in jobs_to_export
-                              if (j.get("url") or j.get("id") or "") in sel_set]
+            jobs_to_export = [j for j in jobs_to_export if (j.get("url") or j.get("id") or "") in sel_set]
 
         if not jobs_to_export:
-            return JSONResponse(
-                {"error": "Keine Jobs zum Exportieren. Bitte zuerst suchen und Jobs auswählen."},
-                status_code=400,
-            )
+            return JSONResponse({"error": "Keine Jobs zum Exportieren. Bitte zuerst suchen."}, status_code=400)
 
-        # Query-History ergänzen
         if not all_queries:
-            state_hist = jobqueen_state[chat_id].get("query_history") or []
-            all_queries = [q.get("query", "") for q in state_hist if q.get("query")]
+            all_queries = [q.get("query", "") for q in (jobqueen_state[chat_id].get("query_history") or []) if q.get("query")]
 
         from dv import create_jobqueen_excel
-        from starlette.responses import Response as _RawResponse
+        buf     = create_jobqueen_excel(jobs=jobs_to_export, queries=all_queries,
+                                        export_date=datetime.now().strftime("%d.%m.%Y %H:%M"))
+        content = buf.getvalue()
 
-        buf = create_jobqueen_excel(
-            jobs=jobs_to_export,
-            queries=all_queries,
-            export_date=datetime.now().strftime("%d.%m.%Y %H:%M"),
-        )
-        content  = buf.getvalue()
-        today    = datetime.now().strftime("%Y-%m-%d")
-        filename = f"JobQueen_Export_{today}.xlsx"
-        return _RawResponse(
-            content=content,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Length":      str(len(content)),
-                "Cache-Control":       "no-cache, no-store",
-            },
-        )
+        # Session-Token erstellen (Download via GET)
+        token = _uuid.uuid4().hex[:16]
+        today = datetime.now().strftime("%Y-%m-%d")
+        _excel_sessions[token] = {"content": content, "filename": f"JobQueen_Export_{today}.xlsx"}
+        _trim_excel_sessions()
+
+        return JSONResponse({
+            "token":    token,
+            "url":      f"/api/jobqueen/excel/download/{token}",
+            "count":    len(jobs_to_export),
+            "filename": f"JobQueen_Export_{today}.xlsx",
+        })
     except Exception as e:
         logger.error("jobqueen_excel Fehler: %s", e, exc_info=True)
         return JSONResponse({"error": str(e)[:500]}, status_code=500)
+
+
+@app.get("/api/jobqueen/excel/download/{token}")
+async def jobqueen_excel_download(token: str):
+    """Liefert eine vorbereitete Excel-Datei via GET (für Telegram-kompatibler Download)."""
+    from starlette.responses import Response as _RawResponse
+    session = _excel_sessions.get(token)
+    if not session:
+        return JSONResponse({"error": "Token abgelaufen oder ungültig. Bitte nochmals exportieren."}, status_code=404)
+    content  = session["content"]
+    filename = session.get("filename", "JobQueen_Export.xlsx")
+    return _RawResponse(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length":      str(len(content)),
+            "Cache-Control":       "no-cache",
+        },
+    )
+
+
 
 
 @app.post("/api/jobqueen/coverletters")
