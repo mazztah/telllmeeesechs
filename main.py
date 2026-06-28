@@ -2276,7 +2276,7 @@ async def jobqueen_jobs(request: Request):
 
 @app.post("/api/jobqueen/excel")
 async def jobqueen_excel(request: Request):
-    """JobQueen Excel – bereitet Export vor und gibt einen Session-Download-Token zurück."""
+    """JobQueen Excel – liefert XLSX direkt als Binary-Response (kein Session-State nötig)."""
     try:
         body         = await request.json()
         query        = (body.get("query") or "Jobsuche").strip()
@@ -2298,31 +2298,42 @@ async def jobqueen_excel(request: Request):
         jobs_to_export = list(idx.values())
         if isinstance(selected_ids, list) and selected_ids:
             sel_set        = set(str(s) for s in selected_ids if s)
-            jobs_to_export = [j for j in jobs_to_export if (j.get("url") or j.get("id") or "") in sel_set]
+            jobs_to_export = [j for j in jobs_to_export
+                              if (j.get("url") or j.get("id") or "") in sel_set]
 
         if not jobs_to_export:
-            return JSONResponse({"error": "Keine Jobs zum Exportieren. Bitte zuerst suchen."}, status_code=400)
+            return JSONResponse(
+                {"error": "Keine Jobs zum Exportieren. Bitte zuerst suchen."},
+                status_code=400)
 
         if not all_queries:
-            all_queries = [q.get("query", "") for q in (jobqueen_state[chat_id].get("query_history") or []) if q.get("query")]
+            all_queries = [q.get("query", "")
+                           for q in (jobqueen_state[chat_id].get("query_history") or [])
+                           if q.get("query")]
 
         from dv import create_jobqueen_excel
-        buf     = create_jobqueen_excel(jobs=jobs_to_export, queries=all_queries,
-                                        export_date=datetime.now().strftime("%d.%m.%Y %H:%M"))
+        from starlette.responses import Response as _RawResponse
+        buf     = create_jobqueen_excel(
+            jobs=jobs_to_export,
+            queries=all_queries,
+            export_date=datetime.now().strftime("%d.%m.%Y %H:%M"))
         content = buf.getvalue()
+        today   = datetime.now().strftime("%Y-%m-%d")
+        fname   = f"JobQueen_Export_{today}.xlsx"
 
-        # Session-Token erstellen (Download via GET)
-        token = _uuid.uuid4().hex[:16]
-        today = datetime.now().strftime("%Y-%m-%d")
-        _excel_sessions[token] = {"content": content, "filename": f"JobQueen_Export_{today}.xlsx"}
-        _trim_excel_sessions()
-
-        return JSONResponse({
-            "token":    token,
-            "url":      f"/api/jobqueen/excel/download/{token}",
-            "count":    len(jobs_to_export),
-            "filename": f"JobQueen_Export_{today}.xlsx",
-        })
+        # Direkte Binary-Antwort – kein Session-State, funktioniert mit Cloud Run Multi-Instance
+        return _RawResponse(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="{fname}"',
+                "Content-Length":      str(len(content)),
+                "X-Job-Count":         str(len(jobs_to_export)),
+                "X-Filename":          fname,
+                "Cache-Control":       "no-cache, no-store",
+                "Access-Control-Expose-Headers": "X-Job-Count, X-Filename",
+            },
+        )
     except Exception as e:
         logger.error("jobqueen_excel Fehler: %s", e, exc_info=True)
         return JSONResponse({"error": str(e)[:500]}, status_code=500)
