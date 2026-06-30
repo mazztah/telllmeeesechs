@@ -6,6 +6,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>JobQueen – Workspace</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -701,6 +702,14 @@
 <script>
 'use strict';
 
+/* ─── TELEGRAM WEBAPP INIT ──────────────────────────────────────── */
+// Muss als Erstes laufen, damit initDataUnsafe verlaesslich befuellt ist.
+const _tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+if (_tg) {
+  try { _tg.ready(); } catch(_) {}
+  try { _tg.expand(); } catch(_) {}
+}
+
 /* ─── CHAT TARGETS ──────────────────────────────────────────────── */
 // Active chat target: 'desktop' or 'mobile'
 function isMobile() { return window.innerWidth <= 900; }
@@ -823,15 +832,67 @@ let lastJobs     = [];
 let allJobsIndex = {};   // url/id → job (akkumuliert über alle Suchen)
 let queryHistory = [];   // [{query, platform, location}]
 
-// Echte Telegram-Chat-ID (für Datei-Versand via Bot)
+// Echte Telegram-Chat-ID (für Datei-Versand via Bot) – mehrere Quellen probiert
 function getTgChatId() {
+  // 1) Telegram WebApp SDK – Standard-Methode
   try {
     const tg = window.Telegram?.WebApp;
-    if (!tg) return null;
-    const uid = tg.initDataUnsafe?.user?.id;
-    const cid = tg.initDataUnsafe?.chat?.id;
-    return (cid || uid || null);
-  } catch(_) { return null; }
+    if (tg) {
+      const uid = tg.initDataUnsafe?.user?.id;
+      const cid = tg.initDataUnsafe?.chat?.id;
+      if (cid) return String(cid);
+      if (uid) return String(uid);
+      // 2) Fallback: rohen initData-String selbst parsen
+      // (manche WebViews befuellen initDataUnsafe verzoegert/gar nicht)
+      if (tg.initData) {
+        try {
+          const params = new URLSearchParams(tg.initData);
+          const userRaw = params.get('user');
+          if (userRaw) {
+            const userObj = JSON.parse(userRaw);
+            if (userObj?.id) return String(userObj.id);
+          }
+        } catch(_) {}
+      }
+    }
+  } catch(_) {}
+
+  // 3) Fallback: URL-Query-Parameter (falls der Bot die chat_id direkt in den Link einbaut)
+  try {
+    const qp = new URLSearchParams(window.location.search);
+    const fromUrl = qp.get('cid') || qp.get('chat_id') || qp.get('tgid') || qp.get('uid');
+    if (fromUrl) return String(fromUrl);
+  } catch(_) {}
+
+  // 4) Fallback: URL-Hash (Telegram nutzt teils #tgWebAppData=...)
+  try {
+    if (window.location.hash && window.location.hash.includes('user')) {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const tgData = hashParams.get('tgWebAppData');
+      if (tgData) {
+        const innerParams = new URLSearchParams(tgData);
+        const userRaw = innerParams.get('user');
+        if (userRaw) {
+          const userObj = JSON.parse(userRaw);
+          if (userObj?.id) return String(userObj.id);
+        }
+      }
+    }
+  } catch(_) {}
+
+  return null;
+}
+
+// Debug-Helfer: zeigt im Browser-Devtools-Log warum die Erkennung scheitert
+function _debugTgDetection() {
+  const tg = window.Telegram?.WebApp;
+  console.log('[JobQueen] Telegram SDK geladen:', !!tg);
+  if (tg) {
+    console.log('[JobQueen] initDataUnsafe:', tg.initDataUnsafe);
+    console.log('[JobQueen] initData (raw):', tg.initData ? tg.initData.slice(0,200) : '(leer)');
+    console.log('[JobQueen] platform:', tg.platform, '| version:', tg.version);
+  }
+  console.log('[JobQueen] erkannte chat_id:', getTgChatId());
 }
 
 async function doSearch() {
@@ -1110,9 +1171,23 @@ async function doExport(){
   const exportJobs=useAll?Object.values(allJobsIndex):selectedIds.map(k=>allJobsIndex[k]).filter(Boolean);
   if(exportJobs.length===0){addMsgBoth('⚠️ Keine Jobs ausgewaehlt.',false);return;}
   const lbl=useAll?`allen ${exportJobs.length}`:`${exportJobs.length} ausgewaehlten`;
+
+  const tgChatId = getTgChatId();
+  _debugTgDetection(); // Loggt Details in die Browser-Konsole (F12) zur Diagnose
+
+  if (!tgChatId) {
+    addMsgBoth(
+      `⚠️ <b>Telegram-Chat konnte nicht erkannt werden.</b><br>`
+      +`Bitte oeffne JobQueen ausschliesslich ueber den Bot-Button in Telegram `
+      +`(nicht als normaler Browser-Link). Falls das Problem bestehen bleibt, `
+      +`sende mir bitte einmal <code>/jobqueen</code> direkt im Chat und versuche es erneut.`,
+      false
+    );
+  }
+
   addMsgBoth(`📤 Erstelle Export mit ${lbl} Jobs…`,false);
+
   try{
-    const tgChatId = getTgChatId();
     const res=await fetch('/api/jobqueen/excel',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -1124,7 +1199,6 @@ async function doExport(){
       })
     });
 
-    // Fehlerfall
     if(!res.ok){
       const txt=await res.text();
       let msg=`HTTP ${res.status}`;
@@ -1134,21 +1208,33 @@ async function doExport(){
 
     const ctype=res.headers.get('Content-Type')||'';
 
-    // ── Telegram-Bot hat Dateien direkt in den Chat gesendet ──────────
+    // ── Telegram-Bot hat Dateien direkt in den Chat gesendet (Standardweg) ──
     if(ctype.includes('application/json')){
       const data=await res.json();
       if(data.error) throw new Error(data.error);
+
+      if (data.telegram_sent === false) {
+        // Server hat versucht zu senden, ist aber fehlgeschlagen – Grund anzeigen
+        addMsgBoth(
+          `⚠️ <b>Telegram-Versand fehlgeschlagen:</b><br>`
+          +`<span style='font-size:0.8rem;color:var(--muted)'>${escHtml(data.telegram_error||'Unbekannter Fehler')}</span><br>`
+          +`Bitte sende dem Bot einmal eine Nachricht (z.B. <code>/start</code>) und versuche den Export erneut.`,
+          false
+        );
+        return;
+      }
+
       const qSet=[...new Set(queryHistory.map(r=>r.query))];
       addMsgBoth(
         `✅ <b>${data.count} Stellen exportiert</b> (${qSet.length} Suchanfrage(n))<br>`
         +`📬 <b>Excel, PDF & Markdown wurden in deinen Telegram-Chat gesendet!</b><br>`
-        +`<span style='font-size:0.78rem;color:var(--muted)'>Schaue in deinen Telegram-Chat mit dem Bot.</span>`,
+        +`<span style='font-size:0.78rem;color:var(--muted)'>Schau in deinen Chat mit dem Bot – die Dateien sollten als Anhang erscheinen.</span>`,
         false
       );
       return;
     }
 
-    // ── Binary-Fallback (kein Telegram-Kontext) ───────────────────────
+    // ── Fallback: Direkter Datei-Download (nur sinnvoll ausserhalb Telegram) ──
     const blob=await res.blob();
     if(blob.size<200) throw new Error('Leere Datei erhalten ('+blob.size+' bytes)');
     const today=new Date().toISOString().split('T')[0];
@@ -1156,24 +1242,35 @@ async function doExport(){
     const blobUrl=URL.createObjectURL(new Blob([blob],{
       type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     }));
-    const a=document.createElement('a');
-    a.href=blobUrl; a.download=fname; a.style.display='none';
-    document.body.appendChild(a); a.click();
-    setTimeout(()=>{document.body.removeChild(a);},400);
+
+    // In Telegrams eingebettetem WebView funktionieren blob-Downloads i.d.R. NICHT.
+    // tg.openLink() reicht die URL an den System-Browser weiter, wo es funktioniert.
+    let triedOpenLink = false;
+    try {
+      const tg = window.Telegram?.WebApp;
+      if (tg?.openLink) { tg.openLink(blobUrl); triedOpenLink = true; }
+    } catch(_) {}
+
+    if (!triedOpenLink) {
+      const a=document.createElement('a');
+      a.href=blobUrl; a.download=fname; a.style.display='none';
+      document.body.appendChild(a); a.click();
+      setTimeout(()=>{document.body.removeChild(a);},400);
+    }
+
     const qSet=[...new Set(queryHistory.map(r=>r.query))];
     addMsgBoth(
       `✅ <b>${exportJobs.length} Stellen exportiert</b> (${qSet.length} Suchanfrage(n))<br>`
-      +`<a href='${blobUrl}' download='${fname}' `
+      +`<a href='${blobUrl}' download='${fname}' target='_blank' `
       +`style='display:inline-block;margin-top:6px;padding:6px 14px;`
       +`background:var(--accent);color:#0f0f1a;border-radius:8px;`
       +`font-weight:700;font-size:0.82rem;text-decoration:none'>`
       +`⬇️ ${fname} herunterladen</a>`
       +`<span style='font-size:0.72rem;color:var(--muted);display:block;margin-top:4px'>`
-      +`(Link ist 5 Minuten gueltig)</span>`,
+      +`Falls der Klick nichts tut: Diese Seite in einem normalen Browser-Tab `
+      +`(nicht in Telegram) oeffnen – dort funktioniert der Download zuverlaessig.</span>`,
       false
     );
-    setTimeout(()=>URL.revokeObjectURL(blobUrl),5*60*1000);
-
   }catch(e){
     addMsgBoth(`❌ Export fehlgeschlagen: ${e.message}`,false);
     console.error('Export:',e);
