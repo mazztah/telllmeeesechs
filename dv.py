@@ -377,6 +377,158 @@ def create_jobqueen_excel(jobs: list, queries: list = None, export_date: str = "
     return buf
 
 
+
+def create_jobqueen_pdf(jobs: list, queries: list = None, export_date: str = "") -> "BytesIO":
+    """Erstellt professionelles JobQueen-PDF mit reportlab."""
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                        HRFlowable, KeepTogether)
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+        buf = BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4,
+                                rightMargin=18*mm, leftMargin=18*mm,
+                                topMargin=18*mm, bottomMargin=18*mm)
+
+        C_PURPLE = colors.HexColor("#6D28D9")
+        C_DARK   = colors.HexColor("#1E1B4B")
+        C_GRAY   = colors.HexColor("#6B7280")
+        C_LIGHT  = colors.HexColor("#EDE9FE")
+        C_GOLD   = colors.HexColor("#D4AF37")
+
+        st_title = ParagraphStyle("jq_title", fontSize=22, fontName="Helvetica-Bold",
+                                   textColor=C_PURPLE, alignment=TA_CENTER, spaceAfter=4)
+        st_sub   = ParagraphStyle("jq_sub",   fontSize=10, fontName="Helvetica",
+                                   textColor=C_GRAY,   alignment=TA_CENTER, spaceAfter=14)
+        st_num   = ParagraphStyle("jq_num",   fontSize=9,  fontName="Helvetica-Bold",
+                                   textColor=C_PURPLE)
+        st_jt    = ParagraphStyle("jq_jt",    fontSize=13, fontName="Helvetica-Bold",
+                                   textColor=C_DARK,   spaceAfter=3, spaceBefore=6)
+        st_meta  = ParagraphStyle("jq_meta",  fontSize=9,  fontName="Helvetica",
+                                   textColor=C_GRAY,   spaceAfter=2)
+        st_url   = ParagraphStyle("jq_url",   fontSize=8,  fontName="Helvetica",
+                                   textColor=colors.blue, spaceAfter=3)
+        st_desc  = ParagraphStyle("jq_desc",  fontSize=9,  fontName="Helvetica",
+                                   textColor=C_GRAY,   spaceAfter=6, leading=12)
+
+        import datetime as _dt
+        ed = export_date or _dt.datetime.now().strftime("%d.%m.%Y %H:%M")
+        qstr = ", ".join(q for q in (queries or []) if q) or "-"
+
+        story = [
+            Paragraph("JobQueen - Stellensuche Export", st_title),
+            Paragraph(f"Exportiert am {ed}  |  {len(jobs)} Stelle(n)  |  Suche: {qstr[:80]}", st_sub),
+            HRFlowable(width="100%", thickness=2, color=C_PURPLE, spaceAfter=10),
+        ]
+
+        for i, j in enumerate(jobs, 1):
+            raw_d = j.get("date") or ""
+            try:
+                import datetime as _dt2
+                date_str = _dt2.datetime.fromisoformat(raw_d.split("T")[0]).strftime("%d.%m.%Y")
+            except Exception:
+                date_str = raw_d
+
+            url     = j.get("url") or ""
+            title   = (j.get("title") or "Unbekannte Stelle").replace("<", "&lt;").replace(">", "&gt;")
+            company = (j.get("company") or "-").replace("<", "&lt;")
+            loc     = (j.get("location") or "-").replace("<", "&lt;")
+            src     = (j.get("source") or "").replace("<", "&lt;")
+            desc    = (j.get("description_snippet") or "")[:280].replace("<", "&lt;")
+
+            block = []
+            block.append(Paragraph(f"[{i}]  {title}", st_jt))
+            meta_parts = [f"Firma: {company}", f"Ort: {loc}"]
+            if src:   meta_parts.append(f"Quelle: {src}")
+            if date_str: meta_parts.append(f"Datum: {date_str}")
+            block.append(Paragraph("  |  ".join(meta_parts), st_meta))
+            if url:
+                safe_url = url[:100]
+                block.append(Paragraph(f"Link: {safe_url}", st_url))
+            if desc:
+                block.append(Paragraph(desc, st_desc))
+            block.append(HRFlowable(width="100%", thickness=0.5,
+                                    color=C_LIGHT, spaceAfter=4))
+            story.append(KeepTogether(block))
+
+        doc.build(story)
+        buf.seek(0)
+        return buf
+    except Exception as _e:
+        logger.error("create_jobqueen_pdf Fehler: %s", _e)
+        # Plain-text fallback
+        lines = ["JobQueen – Stellensuche Export", "=" * 40, ""]
+        for i, j in enumerate(jobs, 1):
+            lines.append(f"{i}. {j.get('title','?')} – {j.get('company','?')}")
+            if j.get("url"): lines.append(f"   {j.get('url')}")
+            lines.append("")
+        text = "\n".join(lines)
+        from reportlab.pdfgen import canvas as _c
+        from reportlab.lib.pagesizes import letter as _letter
+        buf = BytesIO()
+        c = _c.Canvas(buf, pagesize=_letter)
+        y = 750
+        for line in text.split("\n"):
+            if y < 50: c.showPage(); y = 750
+            c.drawString(50, y, line[:90]); y -= 14
+        c.save(); buf.seek(0)
+        return buf
+
+
+def create_jobqueen_markdown(jobs: list, queries: list = None, export_date: str = "") -> str:
+    """Erstellt Markdown-Bericht der Stellensuche."""
+    import datetime as _dt
+    ed  = export_date or _dt.datetime.now().strftime("%d.%m.%Y %H:%M")
+    qstr = ", ".join(q for q in (queries or []) if q) or "-"
+    lines = [
+        "# JobQueen – Stellensuche Export",
+        "",
+        f"| Feld | Wert |",
+        f"|------|------|",
+        f"| Exportiert am | {ed} |",
+        f"| Stellen gesamt | {len(jobs)} |",
+        f"| Suchanfragen | {qstr[:120]} |",
+        "",
+        "---",
+        "",
+    ]
+    for i, j in enumerate(jobs, 1):
+        raw_d = j.get("date") or ""
+        try:
+            import datetime as _dt2
+            date_str = _dt2.datetime.fromisoformat(raw_d.split("T")[0]).strftime("%d.%m.%Y")
+        except Exception:
+            date_str = raw_d
+
+        title   = j.get("title")   or "Unbekannte Stelle"
+        company = j.get("company") or "-"
+        loc     = j.get("location") or "-"
+        src     = j.get("source")  or ""
+        url     = j.get("url")     or ""
+        desc    = (j.get("description_snippet") or "")[:300]
+
+        lines += [
+            f"## {i}. {title}",
+            "",
+            f"| | |",
+            f"|---|---|",
+            f"| **Firma** | {company} |",
+            f"| **Ort** | {loc} |",
+        ]
+        if src:      lines.append(f"| **Quelle** | {src} |")
+        if date_str: lines.append(f"| **Datum** | {date_str} |")
+        if url:      lines.append(f"| **Link** | [{url[:60]}]({url}) |")
+        lines.append("")
+        if desc:
+            lines += [f"> {desc}", ""]
+        lines += ["---", ""]
+    return "\n".join(lines)
+
+
 def create_chart_from_df(df: pd.DataFrame, title: str = "Chart") -> BytesIO:
     img = Image.new("RGB", (900, 600), "#2a0044")
     draw = ImageDraw.Draw(img)

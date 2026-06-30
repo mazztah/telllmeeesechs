@@ -11,6 +11,7 @@ import tempfile
 import base64
 import httpx
 from pathlib import Path
+from io import BytesIO
 
 # ── HTTPX Global Connection Limits (verhindert socket exhaustion auf HF Free Tier) ──
 HTTPX_LIMITS = httpx.Limits(
@@ -2276,11 +2277,16 @@ async def jobqueen_jobs(request: Request):
 
 @app.post("/api/jobqueen/excel")
 async def jobqueen_excel(request: Request):
-    """JobQueen Excel – liefert XLSX direkt als Binary-Response (kein Session-State nötig)."""
+    """
+    JobQueen Export – sendet Excel, PDF und Markdown DIREKT in den Telegram-Chat.
+    Kein Browser-Download, kein Session-State, kein Cloud-Run-Multi-Instance-Problem.
+    Erwartet tg_chat_id (echte Telegram User/Chat-ID) vom Frontend.
+    """
     try:
         body         = await request.json()
         query        = (body.get("query") or "Jobsuche").strip()
         chat_id      = (body.get("chat_id") or "jobqueen").strip() or "jobqueen"
+        tg_chat_id   = body.get("tg_chat_id")          # Echte Telegram-Chat-ID
         jobs_raw     = body.get("jobs")
         selected_ids = body.get("selected_ids")
         all_queries  = body.get("all_queries") or []
@@ -2303,7 +2309,7 @@ async def jobqueen_excel(request: Request):
 
         if not jobs_to_export:
             return JSONResponse(
-                {"error": "Keine Jobs zum Exportieren. Bitte zuerst suchen."},
+                {"error": "Keine Jobs zum Exportieren. Bitte zuerst suchen und Jobs auswaehlen."},
                 status_code=400)
 
         if not all_queries:
@@ -2311,27 +2317,73 @@ async def jobqueen_excel(request: Request):
                            for q in (jobqueen_state[chat_id].get("query_history") or [])
                            if q.get("query")]
 
-        from dv import create_jobqueen_excel
-        from starlette.responses import Response as _RawResponse
-        buf     = create_jobqueen_excel(
-            jobs=jobs_to_export,
-            queries=all_queries,
-            export_date=datetime.now().strftime("%d.%m.%Y %H:%M"))
-        content = buf.getvalue()
-        today   = datetime.now().strftime("%Y-%m-%d")
-        fname   = f"JobQueen_Export_{today}.xlsx"
+        from dv import create_jobqueen_excel, create_jobqueen_pdf, create_jobqueen_markdown
 
-        # Direkte Binary-Antwort – kein Session-State, funktioniert mit Cloud Run Multi-Instance
+        ed    = datetime.now().strftime("%d.%m.%Y %H:%M")
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # ── Dateien generieren ──────────────────────────────────────────────
+        excel_buf = create_jobqueen_excel(jobs=jobs_to_export, queries=all_queries, export_date=ed)
+        pdf_buf   = create_jobqueen_pdf  (jobs=jobs_to_export, queries=all_queries, export_date=ed)
+        md_text   = create_jobqueen_markdown(jobs=jobs_to_export, queries=all_queries, export_date=ed)
+        md_buf    = BytesIO(md_text.encode("utf-8")); md_buf.seek(0)
+
+        fname_base = f"JobQueen_Export_{today}"
+        caption    = (f"JobQueen Export  |  {len(jobs_to_export)} Stelle(n)  |  {ed}\n"
+                      f"Suchanfragen: {', '.join(set(all_queries))[:80] or '-'}")
+
+        # ── Via Telegram-Bot senden (primäre Methode) ──────────────────────
+        if tg_chat_id:
+            try:
+                from bot_state import application as _tg_app
+                real_cid = int(str(tg_chat_id).strip())
+
+                excel_buf.seek(0)
+                await _tg_app.bot.send_document(
+                    chat_id=real_cid,
+                    document=excel_buf,
+                    filename=f"{fname_base}.xlsx",
+                    caption=f"📊 Excel:\n{caption}",
+                )
+                pdf_buf.seek(0)
+                await _tg_app.bot.send_document(
+                    chat_id=real_cid,
+                    document=pdf_buf,
+                    filename=f"{fname_base}.pdf",
+                    caption=f"📄 PDF:\n{caption}",
+                )
+                md_buf.seek(0)
+                await _tg_app.bot.send_document(
+                    chat_id=real_cid,
+                    document=md_buf,
+                    filename=f"{fname_base}.md",
+                    caption=f"📝 Markdown:\n{caption}",
+                )
+                logger.info("JobQueen Export: %d Jobs via Telegram an Chat %s gesendet",
+                            len(jobs_to_export), real_cid)
+                return JSONResponse({
+                    "success":  True,
+                    "method":   "telegram",
+                    "count":    len(jobs_to_export),
+                    "message":  (f"{len(jobs_to_export)} Stellen als "
+                                 f"Excel, PDF & Markdown in deinen Telegram-Chat gesendet!"),
+                })
+            except Exception as tg_err:
+                logger.warning("Telegram-Senden fehlgeschlagen (%s), sende Binary-Fallback", tg_err)
+
+        # ── Binary-Fallback (kein tg_chat_id oder Telegram-Fehler) ─────────
+        from starlette.responses import Response as _RawResponse
+        excel_buf.seek(0)
+        content = excel_buf.getvalue()
         return _RawResponse(
             content=content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f'attachment; filename="{fname}"',
+                "Content-Disposition": f'attachment; filename="{fname_base}.xlsx"',
                 "Content-Length":      str(len(content)),
                 "X-Job-Count":         str(len(jobs_to_export)),
-                "X-Filename":          fname,
                 "Cache-Control":       "no-cache, no-store",
-                "Access-Control-Expose-Headers": "X-Job-Count, X-Filename",
+                "Access-Control-Expose-Headers": "X-Job-Count",
             },
         )
     except Exception as e:
