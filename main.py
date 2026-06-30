@@ -2362,16 +2362,30 @@ async def jobqueen_excel(request: Request):
                 logger.info("JobQueen Export: %d Jobs via Telegram an Chat %s gesendet",
                             len(jobs_to_export), real_cid)
                 return JSONResponse({
-                    "success":  True,
-                    "method":   "telegram",
-                    "count":    len(jobs_to_export),
-                    "message":  (f"{len(jobs_to_export)} Stellen als "
-                                 f"Excel, PDF & Markdown in deinen Telegram-Chat gesendet!"),
+                    "success":       True,
+                    "method":        "telegram",
+                    "telegram_sent": True,
+                    "count":         len(jobs_to_export),
+                    "message":       (f"{len(jobs_to_export)} Stellen als "
+                                      f"Excel, PDF & Markdown in deinen Telegram-Chat gesendet!"),
                 })
             except Exception as tg_err:
-                logger.warning("Telegram-Senden fehlgeschlagen (%s), sende Binary-Fallback", tg_err)
+                # WICHTIG: Telegram-Fehler NICHT verschlucken. Ein Binary-Fallback waere
+                # hier sinnlos, da blob-Downloads im Telegram-WebView ohnehin nicht
+                # funktionieren – stattdessen klaren Grund an das Frontend zurueckgeben.
+                logger.error("Telegram-Senden an chat_id=%s fehlgeschlagen: %s",
+                             tg_chat_id, tg_err, exc_info=True)
+                return JSONResponse({
+                    "success":       False,
+                    "telegram_sent": False,
+                    "telegram_error": str(tg_err)[:300],
+                    "count":          len(jobs_to_export),
+                    "message":        "Telegram-Versand fehlgeschlagen.",
+                })
 
-        # ── Binary-Fallback (kein tg_chat_id oder Telegram-Fehler) ─────────
+        # ── Binary-Fallback NUR wenn gar keine tg_chat_id übermittelt wurde ──
+        # (z.B. echter Test ausserhalb von Telegram in einem normalen Browser-Tab)
+        logger.info("JobQueen Export: keine tg_chat_id vorhanden, sende Binary-Fallback")
         from starlette.responses import Response as _RawResponse
         excel_buf.seek(0)
         content = excel_buf.getvalue()
