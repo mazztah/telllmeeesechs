@@ -823,6 +823,17 @@ let lastJobs     = [];
 let allJobsIndex = {};   // url/id → job (akkumuliert über alle Suchen)
 let queryHistory = [];   // [{query, platform, location}]
 
+// Echte Telegram-Chat-ID (für Datei-Versand via Bot)
+function getTgChatId() {
+  try {
+    const tg = window.Telegram?.WebApp;
+    if (!tg) return null;
+    const uid = tg.initDataUnsafe?.user?.id;
+    const cid = tg.initDataUnsafe?.chat?.id;
+    return (cid || uid || null);
+  } catch(_) { return null; }
+}
+
 async function doSearch() {
   const q    = document.getElementById('main-search').value.trim();
   const loc  = document.getElementById('location-search').value.trim();
@@ -1097,62 +1108,73 @@ async function doExport(){
   document.querySelectorAll('.job-select-cb:checked').forEach(cb=>selectedIds.push(cb.getAttribute('data-job-key')));
   const useAll=selectedIds.length===0;
   const exportJobs=useAll?Object.values(allJobsIndex):selectedIds.map(k=>allJobsIndex[k]).filter(Boolean);
-  if(exportJobs.length===0){addMsgBoth('⚠️ Keine Jobs zum Exportieren.',false);return;}
-  const lbl=useAll?`allen ${exportJobs.length}`:`${exportJobs.length} ausgewählten`;
-  addMsgBoth(`📤 Erstelle Excel mit ${lbl} Jobs…`,false);
+  if(exportJobs.length===0){addMsgBoth('⚠️ Keine Jobs ausgewaehlt.',false);return;}
+  const lbl=useAll?`allen ${exportJobs.length}`:`${exportJobs.length} ausgewaehlten`;
+  addMsgBoth(`📤 Erstelle Export mit ${lbl} Jobs…`,false);
   try{
+    const tgChatId = getTgChatId();
     const res=await fetch('/api/jobqueen/excel',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        query:q||'Jobsuche',chat_id:'jobqueen',jobs:exportJobs,
+        query:q||'Jobsuche',chat_id:'jobqueen',
+        tg_chat_id: tgChatId ? String(tgChatId) : null,
+        jobs:exportJobs,
         selected_ids:useAll?null:selectedIds,
         all_queries:[...new Set(queryHistory.map(r=>r.query))]
       })
     });
 
-    // Fehlerfall: Server liefert JSON mit error-Feld
+    // Fehlerfall
     if(!res.ok){
       const txt=await res.text();
       let msg=`HTTP ${res.status}`;
-      try{ msg=JSON.parse(txt).error||msg; }catch(_){}
+      try{msg=JSON.parse(txt).error||msg;}catch(_){}
       throw new Error(msg);
     }
 
-    // Erfolg: Server liefert Binary-XLSX direkt (kein JSON)
+    const ctype=res.headers.get('Content-Type')||'';
+
+    // ── Telegram-Bot hat Dateien direkt in den Chat gesendet ──────────
+    if(ctype.includes('application/json')){
+      const data=await res.json();
+      if(data.error) throw new Error(data.error);
+      const qSet=[...new Set(queryHistory.map(r=>r.query))];
+      addMsgBoth(
+        `✅ <b>${data.count} Stellen exportiert</b> (${qSet.length} Suchanfrage(n))<br>`
+        +`📬 <b>Excel, PDF & Markdown wurden in deinen Telegram-Chat gesendet!</b><br>`
+        +`<span style='font-size:0.78rem;color:var(--muted)'>Schaue in deinen Telegram-Chat mit dem Bot.</span>`,
+        false
+      );
+      return;
+    }
+
+    // ── Binary-Fallback (kein Telegram-Kontext) ───────────────────────
     const blob=await res.blob();
     if(blob.size<200) throw new Error('Leere Datei erhalten ('+blob.size+' bytes)');
-
     const today=new Date().toISOString().split('T')[0];
-    const fname=res.headers.get('X-Filename')||`JobQueen_Export_${today}.xlsx`;
-    const count=res.headers.get('X-Job-Count')||exportJobs.length;
-
-    // Blob-URL erzeugen (browser-lokal, kein Server-State nötig)
+    const fname=`JobQueen_Export_${today}.xlsx`;
     const blobUrl=URL.createObjectURL(new Blob([blob],{
       type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     }));
-
-    // Download auslösen
     const a=document.createElement('a');
     a.href=blobUrl; a.download=fname; a.style.display='none';
     document.body.appendChild(a); a.click();
-    setTimeout(()=>document.body.removeChild(a),500);
-
-    // Fallback-Link im Chat – bleibt 5 Minuten klickbar
+    setTimeout(()=>{document.body.removeChild(a);},400);
     const qSet=[...new Set(queryHistory.map(r=>r.query))];
     addMsgBoth(
-      `✅ <b>${count} Stellen exportiert</b> (${qSet.length} Suchanfrage(n))<br>`
-      +`<a href="${blobUrl}" download="${fname}" `
-      +`style="display:inline-block;margin-top:6px;padding:6px 14px;`
+      `✅ <b>${exportJobs.length} Stellen exportiert</b> (${qSet.length} Suchanfrage(n))<br>`
+      +`<a href='${blobUrl}' download='${fname}' `
+      +`style='display:inline-block;margin-top:6px;padding:6px 14px;`
       +`background:var(--accent);color:#0f0f1a;border-radius:8px;`
-      +`font-weight:700;font-size:0.82rem;text-decoration:none">`
+      +`font-weight:700;font-size:0.82rem;text-decoration:none'>`
       +`⬇️ ${fname} herunterladen</a>`
-      +`<span style="font-size:0.72rem;color:var(--muted);display:block;margin-top:4px">`
-      +`(Link ist 5 Minuten gültig)</span>`,
+      +`<span style='font-size:0.72rem;color:var(--muted);display:block;margin-top:4px'>`
+      +`(Link ist 5 Minuten gueltig)</span>`,
       false
     );
-    setTimeout(()=>URL.revokeObjectURL(blobUrl), 5*60*1000);
+    setTimeout(()=>URL.revokeObjectURL(blobUrl),5*60*1000);
 
-  } catch(e){
+  }catch(e){
     addMsgBoth(`❌ Export fehlgeschlagen: ${e.message}`,false);
     console.error('Export:',e);
   }
