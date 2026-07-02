@@ -106,6 +106,21 @@
 
         /* ===== URL POPUP MODAL ===== */
         .url-modal { animation: fadeInScale 0.25s ease-out; }
+
+        /* ===== COMPANY LOGO BADGES ===== */
+        .company-logo-badge { width: 3rem; height: 3rem; border-radius: 1rem; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; box-shadow: 0 4px 14px rgba(0,0,0,.25); transition: transform .4s cubic-bezier(.34,1.56,.64,1); }
+        .testimonial-card:hover .company-logo-badge, .timeline-item:hover .company-logo-badge { transform: scale(1.08) rotate(-3deg); }
+        .company-logo-badge img { width: 100%; height: 100%; object-fit: contain; padding: 6px; }
+        .company-blurb { border-top: 1px solid rgba(255,255,255,.08); margin-top: 1.25rem; padding-top: 1rem; }
+
+        /* ===== ZITATE / QUOTES SECTION ===== */
+        .quote-hero-card { position: relative; background: linear-gradient(155deg, rgba(124,58,237,.16), rgba(15,23,42,.4)); border: 1px solid rgba(124,58,237,.35); overflow: hidden; }
+        .quote-hero-card::before { content: '\201C'; position: absolute; top: -30px; left: 10px; font-family: 'Space Grotesk', serif; font-size: 220px; font-weight: 600; color: rgba(124,58,237,.18); line-height: 1; pointer-events: none; }
+        .quote-card { transition: transform .4s cubic-bezier(.34,1.56,.64,1), box-shadow .4s ease, border-color .3s ease; }
+        .quote-card:hover { transform: translateY(-6px); border-color: rgba(124,58,237,.5); box-shadow: 0 20px 35px -14px rgba(124,58,237,.35); }
+        .quote-number { font-family: 'Space Grotesk', sans-serif; font-weight: 600; background: linear-gradient(135deg,#a78bfa,#60a5fa); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        @keyframes quoteFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+        .quote-icon-float { animation: quoteFloat 4.5s ease-in-out infinite; }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-200 dark">
@@ -131,11 +146,18 @@
                     <a href="#roi" class="nav-link underline-grow text-slate-300 hover:text-white">ROI-Rechner</a>
                     <a href="#fiverr-prasentationen" class="nav-link underline-grow text-slate-300 hover:text-white">Präsentationen</a>
                     <a href="#projekte" class="nav-link underline-grow text-slate-300 hover:text-white">Projekte</a>
+                    <a href="#zitate" class="nav-link underline-grow text-slate-300 hover:text-white">Zitate</a>
                     <a href="#standorte" class="nav-link underline-grow text-slate-300 hover:text-white">Standorte</a>
                     <a href="#faq" class="nav-link underline-grow text-slate-300 hover:text-white">FAQ</a>
                 </div>
 
                 <div class="flex items-center gap-x-3">
+                    <a href="https://www.linkedin.com/in/filip-makarczyk-aa512813b" target="_blank" rel="noopener" title="LinkedIn-Profil" class="w-11 h-11 flex items-center justify-center rounded-3xl bg-[#0A66C2]/15 border border-[#0A66C2]/40 text-[#4d9fef] hover:bg-[#0A66C2]/30 hover:text-white transition-all magnetic-btn">
+                        <i class="fa-brands fa-linkedin-in text-lg"></i>
+                    </a>
+                    <a href="https://www.xing.com/profile/Filip_Makarczyk/web_profiles?nwt_nav=profile" target="_blank" rel="noopener" title="Xing-Profil" class="w-11 h-11 flex items-center justify-center rounded-3xl bg-[#006567]/25 border border-[#00857c]/40 text-[#2fd6c4] hover:bg-[#00857c]/40 hover:text-white transition-all magnetic-btn">
+                        <i class="fa-brands fa-xing text-lg"></i>
+                    </a>
                     <button onclick="showCVModal()" class="px-5 py-2 text-sm font-medium rounded-3xl border border-white/20 hover:bg-white/5 transition-all flex items-center gap-x-2">
                         <i class="fa-solid fa-file-lines"></i>
                         <span>Lebenslauf</span>
@@ -197,6 +219,14 @@
                     </a>
                     <a href="#expertise" class="magnetic-btn inline-flex items-center justify-center gap-x-3 px-10 h-16 rounded-3xl border border-white/20 hover:bg-white/5 font-medium text-lg transition-all">
                         <span>Meine Expertise im Detail</span>
+                    </a>
+                    <a href="https://www.linkedin.com/in/filip-makarczyk-aa512813b" target="_blank" rel="noopener" class="magnetic-btn inline-flex items-center justify-center gap-x-3 px-8 h-16 rounded-3xl bg-[#0A66C2] text-white font-medium text-lg hover:bg-[#0A66C2]/85 transition-all">
+                        <i class="fa-brands fa-linkedin-in text-xl"></i>
+                        <span>LinkedIn</span>
+                    </a>
+                    <a href="https://www.xing.com/profile/Filip_Makarczyk/web_profiles?nwt_nav=profile" target="_blank" rel="noopener" class="magnetic-btn inline-flex items-center justify-center gap-x-3 px-8 h-16 rounded-3xl bg-[#00857c] text-white font-medium text-lg hover:bg-[#00857c]/85 transition-all">
+                        <i class="fa-brands fa-xing text-xl"></i>
+                        <span>Xing</span>
                     </a>
                 </div>
 
@@ -639,72 +669,117 @@
                 <div class="quote-mark text-5xl mb-2">"</div>
                 <p class="text-slate-200 text-lg mb-6">Sehr genaue Analysefähigkeit und enorme Auffassungsgabe – auch in schwierigen Situationen wurden sofort zutreffende, schnelle Lösungen gefunden. Alle Aufgaben wurden selbstständig, sorgfältig und planvoll umgesetzt.</p>
                 <div class="flex items-center gap-x-3">
-                    <div class="w-10 h-10 rounded-2xl bg-violet-600/20 flex items-center justify-center text-violet-400"><i class="fa-solid fa-building"></i></div>
+                    <div class="company-logo-badge"><img src="https://logo.clearbit.com/mvgm.com" alt="MVGM Logo" loading="lazy" onerror="this.parentElement.innerHTML='<i class=\'fa-solid fa-building text-violet-600\'></i>'"></div>
                     <div>
                         <div class="font-semibold">MVGM Property Management</div>
                         <div class="text-xs text-slate-400">Teamleiter &amp; Senior Property Manager, 2022–2023</div>
                     </div>
                 </div>
+                <div class="company-blurb text-xs text-slate-400 leading-relaxed">Europäischer Marktführer im Property Management, 1953 gegründet, heute rund 1.500+ Mitarbeitende an über 40 Standorten in 9 Ländern – Markenversprechen „Passion for People and Property“.</div>
             </div>
 
             <div class="testimonial-card glass rounded-3xl p-8 border border-white/10">
                 <div class="quote-mark text-5xl mb-2">"</div>
                 <p class="text-slate-200 text-lg mb-6">Hohe Leistungsbereitschaft und solides Fachwissen bei der Betreuung internationaler Logistikobjekte. Die Zusammenarbeit mit Geschäftsleitung, Kollegen und Mietern war jederzeit loyal, sicher und höflich.</p>
                 <div class="flex items-center gap-x-3">
-                    <div class="w-10 h-10 rounded-2xl bg-blue-600/20 flex items-center justify-center text-blue-400"><i class="fa-solid fa-globe"></i></div>
+                    <div class="company-logo-badge"><img src="https://logo.clearbit.com/brookfieldproperties.com" alt="Brookfield Properties Logo" loading="lazy" onerror="this.parentElement.innerHTML='<i class=\'fa-solid fa-globe text-blue-600\'></i>'"></div>
                     <div>
                         <div class="font-semibold">Brookfield Properties Germany</div>
                         <div class="text-xs text-slate-400">Associate Property Management, 2021</div>
                     </div>
                 </div>
+                <div class="company-blurb text-xs text-slate-400 leading-relaxed">Globaler Immobilieninvestor und -betreiber im Auftrag von Brookfield Asset Management; in Europa u.a. mit Potsdamer Platz Berlin und einem paneuropäischen Logistikportfolio vertreten, starker Fokus auf Nachhaltigkeit (DGNB).</div>
             </div>
 
             <div class="testimonial-card glass rounded-3xl p-8 border border-white/10">
                 <div class="quote-mark text-5xl mb-2">"</div>
                 <p class="text-slate-200 text-lg mb-6">Sehr gutes Fachwissen sowie ausgeprägte Kompetenz im Umgang mit SAP und IX-Haus. Aufgaben wurden zügig, systematisch und mit größtmöglicher Präzision durchgeführt – stets zur vollen Zufriedenheit.</p>
                 <div class="flex items-center gap-x-3">
-                    <div class="w-10 h-10 rounded-2xl bg-emerald-600/20 flex items-center justify-center text-emerald-400"><i class="fa-solid fa-warehouse"></i></div>
+                    <div class="company-logo-badge"><img src="https://logo.clearbit.com/habacker.de" alt="Habacker Holding Logo" loading="lazy" onerror="this.parentElement.innerHTML='<i class=\'fa-solid fa-warehouse text-emerald-600\'></i>'"></div>
                     <div>
                         <div class="font-semibold">Habacker Holding</div>
                         <div class="text-xs text-slate-400">Senior Property Manager, 2018–2019</div>
                     </div>
                 </div>
+                <div class="company-blurb text-xs text-slate-400 leading-relaxed">2006 in Düsseldorf gegründeter, dynamischer Mittelständler für Logistik- und Industrieimmobilien mit ca. 600 Mio. € verwaltetem Portfolio und Kunden wie Amazon, VW, Bosch, Daimler und UBS.</div>
             </div>
 
             <div class="testimonial-card glass rounded-3xl p-8 border border-white/10">
                 <div class="quote-mark text-5xl mb-2">"</div>
                 <p class="text-slate-200 text-lg mb-6">Großer persönlicher Einsatz weit über das eigentliche Aufgabengebiet hinaus, mit stets sehr gutem Kontakt zu Kunden und Mietern. Organisations- und Improvisationstalent als wesentlicher Erfolgsfaktor des Teams.</p>
                 <div class="flex items-center gap-x-3">
-                    <div class="w-10 h-10 rounded-2xl bg-amber-600/20 flex items-center justify-center text-amber-400"><i class="fa-solid fa-shop"></i></div>
+                    <div class="company-logo-badge"><img src="https://logo.clearbit.com/centerscape.de" alt="Centerscape Logo" loading="lazy" onerror="this.parentElement.innerHTML='<i class=\'fa-solid fa-shop text-amber-600\'></i>'"></div>
                     <div>
                         <div class="font-semibold">Centerscape Deutschland</div>
                         <div class="text-xs text-slate-400">Kaufm. Property Manager, 2012–2017</div>
                     </div>
                 </div>
+                <div class="company-blurb text-xs text-slate-400 leading-relaxed">2006 gegründeter, deutschlandweiter Entwickler, Eigentümer und Manager von Nahversorgungs-Einkaufszentren mit Fokus auf nachhaltige Investitionen und Wertschöpfung durch aktives Bestandsmanagement.</div>
             </div>
 
             <div class="testimonial-card glass rounded-3xl p-8 border border-white/10">
                 <div class="quote-mark text-5xl mb-2">"</div>
-                <p class="text-slate-200 text-lg mb-6">Großer Fleiß, Eigeninitiative und Eifer bei der Unterstützung von Rechnungswesen und Liegenschaftsverwaltung. Anforderungen und Erwartungen wurden in sehr hohem Maße übertroffen.</p>
+                <p class="text-slate-200 text-lg mb-6">Schwerpunktmäßig wirkte Herr Makarczyk an Mieterbetreuung, Vertragsmanagement und Nebenkosten-Abrechnungserstellung mit – stets zuverlässig und lösungsorientiert.</p>
                 <div class="flex items-center gap-x-3">
-                    <div class="w-10 h-10 rounded-2xl bg-pink-600/20 flex items-center justify-center text-pink-400"><i class="fa-solid fa-bolt"></i></div>
+                    <div class="company-logo-badge"><img src="https://logo.clearbit.com/iph-cm.de" alt="IPH Centermanagement Logo" loading="lazy" onerror="this.parentElement.innerHTML='<i class=\'fa-solid fa-store text-pink-600\'></i>'"></div>
                     <div>
-                        <div class="font-semibold">E.ON Netz GmbH</div>
-                        <div class="text-xs text-slate-400">Immobilienverwalter, 2010–2011</div>
+                        <div class="font-semibold">IPH Centermanagement</div>
+                        <div class="text-xs text-slate-400">Property Manager, 2017–2018</div>
                     </div>
                 </div>
+                <div class="company-blurb text-xs text-slate-400 leading-relaxed">Joint Venture aus IPH Handelsimmobilien und IC Group; Deutschlands größter unabhängiger Shopping-Center-Dienstleister mit über 160 Experten, spezialisiert auf ganzheitliches Center-Management.</div>
             </div>
 
             <div class="testimonial-card glass rounded-3xl p-8 border border-white/10">
                 <div class="quote-mark text-5xl mb-2">"</div>
                 <p class="text-slate-200 text-lg mb-6">Vorbildliche Eigeninitiative und volle Identifikation mit Aufgaben und Unternehmen, auch bei hohem Arbeitsaufkommen stets hoch belastbar. Aufgrund der Führungsqualitäten als Vorgesetzter besonders anerkannt und beliebt.</p>
                 <div class="flex items-center gap-x-3">
-                    <div class="w-10 h-10 rounded-2xl bg-sky-600/20 flex items-center justify-center text-sky-400"><i class="fa-solid fa-users"></i></div>
+                    <div class="company-logo-badge"><img src="https://logo.clearbit.com/mvgm.com" alt="MVGM Logo" loading="lazy" onerror="this.parentElement.innerHTML='<i class=\'fa-solid fa-users text-sky-600\'></i>'"></div>
                     <div>
                         <div class="font-semibold">MVGM Property Management</div>
                         <div class="text-xs text-slate-400">Teamleiter (Führungsfunktion), 2023</div>
                     </div>
                 </div>
+                <div class="company-blurb text-xs text-slate-400 leading-relaxed">Deutsches MVGM-Team: ca. 400+ Mitarbeitende an 16 Standorten, Verwaltung von rund 10 Mio. m² Wohn- und Gewerbefläche für über 200 Kunden – von Büro über Retail bis Wohnen.</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ZITATE -->
+    <section id="zitate" class="max-w-screen-2xl mx-auto px-8 py-20 bg-slate-900 border-y border-white/10">
+        <div class="reveal max-w-4xl mb-12">
+            <div class="text-blue-400 text-xs tracking-[3px] font-semibold mb-3">GEDANKEN &amp; LEITSÄTZE</div>
+            <h2 class="section-header text-6xl tracking-tighter">Zitate, die meine Arbeit prägen</h2>
+            <p class="mt-5 text-xl text-slate-300">Vier Leitsätze aus 13+ Jahren Immobilienwirtschaft und dem eigenständigen Aufbau von KI-Systemen – die Haltung hinter dem Hybrid-Ansatz.</p>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6">
+            <div class="quote-card quote-hero-card rounded-3xl p-10 relative">
+                <div class="quote-icon-float text-violet-400 text-2xl mb-4"><i class="fa-solid fa-brain"></i></div>
+                <div class="quote-number text-sm mb-3">ZITAT NR. 1</div>
+                <p class="relative z-10 text-2xl md:text-3xl leading-snug font-medium text-white mb-6">„Ein LLM ist immer nur so gut wie der Mensch, der es führt, korrigiert und in echte Prozesse einbettet – die Technologie liefert die Rechenkraft, das Fachwissen liefert die Richtung.“</p>
+                <div class="text-sm text-slate-400">— Filip Makarczyk</div>
+            </div>
+
+            <div class="quote-card glass rounded-3xl p-10 border border-white/10">
+                <div class="quote-icon-float text-blue-400 text-2xl mb-4"><i class="fa-solid fa-gears"></i></div>
+                <div class="quote-number text-sm mb-3">ZITAT NR. 2</div>
+                <p class="text-2xl leading-snug font-medium text-white mb-6">„Wer 13 Jahre lang Prozesse in der Immobilienverwaltung von Hand optimiert hat, weiß genau, wo Automatisierung wirklich Zeit spart – und wo sie nur neue Fehlerquellen schafft.“</p>
+                <div class="text-sm text-slate-400">— Filip Makarczyk</div>
+            </div>
+
+            <div class="quote-card glass rounded-3xl p-10 border border-white/10">
+                <div class="quote-icon-float text-emerald-400 text-2xl mb-4"><i class="fa-solid fa-scale-balanced"></i></div>
+                <div class="quote-number text-sm mb-3">ZITAT NR. 3</div>
+                <p class="text-2xl leading-snug font-medium text-white mb-6">„Digitalisierung im Property Management scheitert selten an der Software – sie scheitert daran, dass niemand die operativen Abläufe wirklich von innen kennt.“</p>
+                <div class="text-sm text-slate-400">— Filip Makarczyk</div>
+            </div>
+
+            <div class="quote-card glass rounded-3xl p-10 border border-white/10">
+                <div class="quote-icon-float text-amber-400 text-2xl mb-4"><i class="fa-solid fa-arrows-to-circle"></i></div>
+                <div class="quote-number text-sm mb-3">ZITAT NR. 4</div>
+                <p class="text-2xl leading-snug font-medium text-white mb-6">„Die Zukunft der Immobilienwirtschaft gehört nicht der KI allein und nicht dem Menschen allein, sondern der Schnittstelle dazwischen – genau dort will ich arbeiten.“</p>
+                <div class="text-sm text-slate-400">— Filip Makarczyk</div>
             </div>
         </div>
     </section>
@@ -848,6 +923,7 @@
                 </div>
                 <div class="flex-1 glass rounded-3xl p-8 border border-white/10">
                     <div class="flex flex-wrap items-center gap-x-4 mb-4">
+                        <div class="company-logo-badge w-9 h-9"><img src="https://logo.clearbit.com/mvgm.com" alt="MVGM" loading="lazy" onerror="this.parentElement.style.display='none'"></div>
                         <div class="font-semibold text-2xl">MVGM Property Management</div>
                         <span class="px-4 py-1 text-xs rounded-3xl bg-violet-600/20 text-violet-400 font-medium">TEAMLEITER</span>
                         <span class="text-sm text-slate-400">01.2023 – 10.2023</span>
@@ -862,6 +938,7 @@
                 </div>
                 <div class="flex-1 glass rounded-3xl p-8 border border-white/10">
                     <div class="flex flex-wrap items-center gap-x-4 mb-4">
+                        <div class="company-logo-badge w-9 h-9"><img src="https://logo.clearbit.com/brookfieldproperties.com" alt="Brookfield" loading="lazy" onerror="this.parentElement.style.display='none'"></div>
                         <div class="font-semibold text-2xl">Brookfield Properties</div>
                         <span class="px-4 py-1 text-xs rounded-3xl bg-blue-600/20 text-blue-400 font-medium">INTERNATIONAL</span>
                         <span class="text-sm text-slate-400">09.2021 – 12.2021</span>
@@ -876,6 +953,7 @@
                 </div>
                 <div class="flex-1 glass rounded-3xl p-8 border border-white/10">
                     <div class="flex flex-wrap items-center gap-x-4 mb-4">
+                        <div class="company-logo-badge w-9 h-9"><img src="https://logo.clearbit.com/habacker.de" alt="Habacker Holding" loading="lazy" onerror="this.parentElement.style.display='none'"></div>
                         <div class="font-semibold text-2xl">Habacker Holding</div>
                         <span class="px-4 py-1 text-xs rounded-3xl bg-emerald-600/20 text-emerald-400 font-medium">KEY USER</span>
                         <span class="text-sm text-slate-400">08.2018 – 09.2019</span>
@@ -890,6 +968,7 @@
                 </div>
                 <div class="flex-1 glass rounded-3xl p-8 border border-white/10">
                     <div class="flex flex-wrap items-center gap-x-4 mb-4">
+                        <div class="company-logo-badge w-9 h-9"><img src="https://logo.clearbit.com/iph-cm.de" alt="IPH Centermanagement" loading="lazy" onerror="this.parentElement.style.display='none'"></div>
                         <div class="font-semibold text-2xl">IPH Centermanagement</div>
                         <span class="px-4 py-1 text-xs rounded-3xl bg-amber-600/20 text-amber-400 font-medium">SHOPPING CENTER</span>
                         <span class="text-sm text-slate-400">10.2017 – 01.2018</span>
@@ -904,6 +983,7 @@
                 </div>
                 <div class="flex-1 glass rounded-3xl p-8 border border-white/10">
                     <div class="flex flex-wrap items-center gap-x-4 mb-4">
+                        <div class="company-logo-badge w-9 h-9"><img src="https://logo.clearbit.com/centerscape.de" alt="Centerscape" loading="lazy" onerror="this.parentElement.style.display='none'"></div>
                         <div class="font-semibold text-2xl">Centerscape Deutschland</div>
                         <span class="px-4 py-1 text-xs rounded-3xl bg-pink-600/20 text-pink-400 font-medium">5 JAHRE</span>
                         <span class="text-sm text-slate-400">07.2012 – 06.2017</span>
@@ -1117,11 +1197,24 @@
                     <p class="text-slate-300 mb-6">Ich melde mich in der Regel innerhalb von 24–48 Stunden bei Ihnen. Für dringende Anfragen erreichen Sie mich auch direkt über den KI-Chat oder LinkedIn.</p>
                     <button onclick="resetContactForm()" class="px-8 py-2.5 text-sm rounded-3xl border border-white/20 hover:bg-white/5 transition-colors">Neue Nachricht schreiben</button>
                 </div>
+
+                <div class="flex items-center justify-center gap-x-4 mt-10">
+                    <a href="https://www.linkedin.com/in/filip-makarczyk-aa512813b" target="_blank" rel="noopener" class="magnetic-btn inline-flex items-center gap-x-2 px-6 h-12 rounded-3xl bg-[#0A66C2] text-white text-sm font-medium hover:bg-[#0A66C2]/85 transition-all">
+                        <i class="fa-brands fa-linkedin-in"></i><span>LinkedIn-Profil</span>
+                    </a>
+                    <a href="https://www.xing.com/profile/Filip_Makarczyk/web_profiles?nwt_nav=profile" target="_blank" rel="noopener" class="magnetic-btn inline-flex items-center gap-x-2 px-6 h-12 rounded-3xl bg-[#00857c] text-white text-sm font-medium hover:bg-[#00857c]/85 transition-all">
+                        <i class="fa-brands fa-xing"></i><span>Xing-Profil</span>
+                    </a>
+                </div>
             </div>
         </div>
     </section>
 
     <footer class="text-center py-8 text-xs text-slate-500 border-t border-white/10">
+        <div class="flex items-center justify-center gap-x-5 mb-4">
+            <a href="https://www.linkedin.com/in/filip-makarczyk-aa512813b" target="_blank" rel="noopener" class="hover:text-[#4d9fef] transition-colors flex items-center gap-x-1.5"><i class="fa-brands fa-linkedin-in"></i> LinkedIn</a>
+            <a href="https://www.xing.com/profile/Filip_Makarczyk/web_profiles?nwt_nav=profile" target="_blank" rel="noopener" class="hover:text-[#2fd6c4] transition-colors flex items-center gap-x-1.5"><i class="fa-brands fa-xing"></i> Xing</a>
+        </div>
         © 2026 Filip Makarczyk • Hybrid zwischen Immobilienwirtschaft und KI-Entwicklung • Bundesweit + International
     </footer>
 
