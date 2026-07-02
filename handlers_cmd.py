@@ -1936,6 +1936,23 @@ async def cmd_jobqueen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cmd_landme(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Öffnet die Filip Makarczyk Hybrid Landing Page (Property Management + AI) als WebApp."""
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "🌟 Filip Makarczyk Landing Page öffnen",
+            web_app=WebAppInfo(url=f"{PUBLIC_APP_BASE_URL}/landme")
+        )],
+    ])
+    await update.message.reply_text(
+        "🌟 <b>Filip Makarczyk</b> – Hybrid Property Management &amp; KI-Experte\n\n"
+        "13+ Jahre Immobilienwirtschaft • Selbstgebautes produktionsreifes KI-System mit 25+ Modulen\n\n"
+        "Kostenlos ausprobieren &amp; Kontakt aufnehmen:",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+
+
 # ====================== SAVE CODE COMMAND ======================
 async def cmd_savecode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
